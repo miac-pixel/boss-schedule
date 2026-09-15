@@ -73,7 +73,7 @@
     border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 10px; font-size: 14px;
     background: #fff;
   }
-  .field input[type=time] { width: 120px; }
+  .field input[type=time] { width: 150px; }
 
   h2.section { font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #F28500; }
 
@@ -167,10 +167,6 @@
   </div>
 
   <div class="card">
-    <h2 class="section" id="listTitle">今天的時段</h2>
-  </div>
-
-  <div class="card">
     <h2 class="section">可預約時段</h2>
     <div id="openSlotList"></div>
   </div>
@@ -246,7 +242,6 @@ function showToast(msg) {
 
 async function loadSlots() {
   if (modalOpen) return;
-  $('listTitle').textContent = fmtLabel(dateOffset(selectedDate)) + ' 的時段';
   try {
     const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + selectedDate)}`);
     const data = await res.json();
@@ -517,10 +512,16 @@ function handleGoogleLogin(response) {
   $('mainApp').style.display = 'block';
   $('userBadgeText').textContent = `${payload.name || email}（${email}）`;
   window.currentUserName = payload.name || email;
+  try {
+    localStorage.setItem('boardUser', JSON.stringify({
+      name: payload.name || email, email, ts: Date.now()
+    }));
+  } catch (e) {}
   initApp();
 }
 
 $('logoutBtn').onclick = () => {
+  try { localStorage.removeItem('boardUser'); } catch (e) {}
   $('mainApp').style.display = 'none';
   $('loginScreen').style.display = 'block';
   if (window.google && google.accounts && google.accounts.id) {
@@ -528,7 +529,33 @@ $('logoutBtn').onclick = () => {
   }
 };
 
+const SESSION_DAYS = 7;
+
+function tryRestoreSession() {
+  try {
+    const raw = localStorage.getItem('boardUser');
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    const domain = (saved.email.split('@')[1] || '').toLowerCase();
+    const allowed = ALLOWED_DOMAINS.some(d => d.toLowerCase() === domain);
+    const notExpired = (Date.now() - saved.ts) < SESSION_DAYS * 24 * 60 * 60 * 1000;
+    if (!allowed || !notExpired) {
+      localStorage.removeItem('boardUser');
+      return false;
+    }
+    $('loginScreen').style.display = 'none';
+    $('mainApp').style.display = 'block';
+    $('userBadgeText').textContent = `${saved.name}（${saved.email}）`;
+    window.currentUserName = saved.name;
+    initApp();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 window.onload = () => {
+  if (tryRestoreSession()) return;
   if (window.google && google.accounts && google.accounts.id) {
     google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
