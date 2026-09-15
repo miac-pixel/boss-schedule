@@ -9,7 +9,7 @@
   body {
     margin: 0;
     font-family: "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
-    background: #F3F4F1;
+    background: #FDEEDD;
     color: #1E2422;
     padding: 24px 16px 80px;
   }
@@ -27,7 +27,7 @@
     border: 1px solid #C7CFC5; background: #fff; font-size: 13px;
     cursor: pointer; color: #445048; white-space: nowrap;
   }
-  .datebtn.active { background: #29453B; color: #fff; border-color: #29453B; }
+  .datebtn.active { background: #F28500; color: #fff; border-color: #F28500; }
 
   .card {
     background: #fff; border: 1px solid #DDE3D8; border-radius: 12px;
@@ -44,7 +44,7 @@
   .meta { flex: 1; min-width: 0; }
   .name { font-size: 14px; font-weight: 700; }
   .topic { font-size: 13px; color: #5C665F; margin-top: 2px; word-break: break-word; }
-  .status-open { color: #29453B; font-size: 13px; font-weight: 700; }
+  .status-open { color: #F28500; font-size: 13px; font-weight: 700; }
   .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
   .tag-open { background: #E4EEE6; color: #1F5133; }
   .tag-booked { background: #F3E7D6; color: #7A4A16; }
@@ -53,11 +53,11 @@
   .tag-red { background: #F9DCD6; color: #8A2A16; }
 
   button.action {
-    border: 1px solid #29453B; background: #29453B; color: #fff;
+    border: 1px solid #F28500; background: #F28500; color: #fff;
     padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
   }
   button.action.secondary {
-    background: #fff; color: #29453B;
+    background: #fff; color: #F28500;
   }
   button.action.danger {
     background: #fff; color: #A34B2E; border-color: #E0C4B6;
@@ -75,7 +75,7 @@
   }
   .field input[type=time] { width: 120px; }
 
-  h2.section { font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #29453B; }
+  h2.section { font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #F28500; }
 
   .modal-bg {
     position: relative; margin-top: 10px; padding: 12px; background: #FAFBF9;
@@ -91,7 +91,7 @@
   .hint { font-size: 12px; color: #8A9289; margin-top: 6px; line-height: 1.6; }
   .toast {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: #29453B; color: #fff; padding: 10px 18px; border-radius: 8px;
+    background: #F28500; color: #fff; padding: 10px 18px; border-radius: 8px;
     font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
   }
   .toast.show { opacity: 1; }
@@ -140,7 +140,7 @@
   <div class="card">
     <h2 class="section">開放新時段</h2>
     <div class="addform" style="margin-bottom:10px;">
-      <span style="font-size:13px; font-weight:700; color:#29453B; min-width:36px;">上午</span>
+      <span style="font-size:13px; font-weight:700; color:#F28500; min-width:36px;">上午</span>
       <div class="field">
         <label>開始時間</label>
         <input type="time" id="startTimeAM" value="09:00">
@@ -152,7 +152,7 @@
       <button class="action" id="addSlotAMBtn">開放上午時段</button>
     </div>
     <div class="addform">
-      <span style="font-size:13px; font-weight:700; color:#29453B; min-width:36px;">下午</span>
+      <span style="font-size:13px; font-weight:700; color:#F28500; min-width:36px;">下午</span>
       <div class="field">
         <label>開始時間</label>
         <input type="time" id="startTimePM" value="14:00">
@@ -168,7 +168,16 @@
 
   <div class="card">
     <h2 class="section" id="listTitle">今天的時段</h2>
-    <div id="slotList"></div>
+  </div>
+
+  <div class="card">
+    <h2 class="section">可預約時段</h2>
+    <div id="openSlotList"></div>
+  </div>
+
+  <div class="card">
+    <h2 class="section">已登記（依時間排序）</h2>
+    <div id="bookedList"></div>
   </div>
 </div>
 
@@ -305,54 +314,65 @@ function getStartOptions(block, duration) {
 }
 
 function renderSlots() {
-  const list = $('slotList');
+  const openList = $('openSlotList');
+  const bookedList = $('bookedList');
+
   if (!slots.length) {
-    list.innerHTML = '<div class="empty">目前沒有開放的時段，先用上面的表單開放一個吧。</div>';
+    openList.innerHTML = '<div class="empty">目前沒有開放的時段，先用上面的表單開放一個吧。</div>';
+    bookedList.innerHTML = '<div class="empty">目前還沒有人登記。</div>';
     return;
   }
-  const sorted = [...slots].sort((a, b) => a.start.localeCompare(b.start));
-  list.innerHTML = '';
-  sorted.forEach(block => {
-    const wrap = document.createElement('div');
-    wrap.className = 'slot';
-    wrap.style.flexDirection = 'column';
-    wrap.style.alignItems = 'stretch';
 
-    const bookings = (block.bookings || []).slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+  // ===== 可預約時段區塊 =====
+  const sortedBlocks = [...slots].sort((a, b) => a.start.localeCompare(b.start));
+  openList.innerHTML = '';
+  sortedBlocks.forEach(block => {
     const hasRoom = getStartOptions(block, 15).length > 0;
-
-    let bookingsHtml = '';
-    bookings.forEach(bk => {
-      const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
-      bookingsHtml += `
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid #EEF0EC;">
-          <div class="time" style="min-width:96px;">${bk.start}–${bk.end}</div>
-          <div class="meta">
-            <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
-            <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
-          </div>
-          <button class="action danger" data-blockid="${block.id}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
-        </div>`;
-    });
-
-    wrap.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div class="time">${block.start}–${block.end}</div>
-        <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
-        ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
-        <button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>
-      </div>
-      ${bookingsHtml}
+    const row = document.createElement('div');
+    row.className = 'slot';
+    row.innerHTML = `
+      <div class="time">${block.start}–${block.end}</div>
+      <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
+      ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
+      <button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>
     `;
-    list.appendChild(wrap);
+    openList.appendChild(row);
   });
-
-  list.querySelectorAll('button[data-act="book"], button[data-act="remove"]').forEach(btn => {
+  openList.querySelectorAll('button[data-act]').forEach(btn => {
     btn.onclick = () => handleAction(btn.dataset.id, btn.dataset.act, btn);
   });
-  list.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
-    btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
+
+  // ===== 已登記名單（依時序） =====
+  const allBookings = [];
+  slots.forEach(block => {
+    (block.bookings || []).forEach(bk => {
+      allBookings.push({ ...bk, blockId: block.id });
+    });
   });
+  allBookings.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+
+  if (!allBookings.length) {
+    bookedList.innerHTML = '<div class="empty">目前還沒有人登記。</div>';
+  } else {
+    bookedList.innerHTML = '';
+    allBookings.forEach(bk => {
+      const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
+      const row = document.createElement('div');
+      row.className = 'slot';
+      row.innerHTML = `
+        <div class="time">${bk.start}–${bk.end}</div>
+        <div class="meta">
+          <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
+          <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
+        </div>
+        <button class="action danger" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
+      `;
+      bookedList.appendChild(row);
+    });
+    bookedList.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
+      btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
+    });
+  }
 }
 
 function escapeHtml(str) {
