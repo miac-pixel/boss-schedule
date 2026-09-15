@@ -242,13 +242,17 @@ function showToast(msg) {
 
 async function loadSlots() {
   if (modalOpen) return;
+  let fetched;
   try {
     const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + selectedDate)}`);
+    if (!res.ok) throw new Error('bad response');
     const data = await res.json();
-    slots = data && data.value ? JSON.parse(data.value) : [];
+    fetched = data && data.value ? JSON.parse(data.value) : [];
   } catch (e) {
-    slots = [];
+    // 抓資料失敗（Apps Script 偶爾會這樣）：保留原本畫面，安靜等下一次自動重試，不要清空畫面造成閃爍
+    return;
   }
+  slots = fetched;
   renderSlots();
 }
 
@@ -379,7 +383,8 @@ function escapeHtml(str) {
 function handleAction(id, act, btnEl) {
   if (act === 'remove') {
     slots = slots.filter(s => s.id !== id);
-    saveSlots().then(renderSlots);
+    renderSlots();
+    saveSlots();
     return;
   }
   if (act === 'book') {
@@ -391,7 +396,8 @@ function cancelBooking(blockId, bookingId) {
   const block = slots.find(s => s.id === blockId);
   if (!block) return;
   block.bookings = (block.bookings || []).filter(b => b.id !== bookingId);
-  saveSlots().then(renderSlots);
+  renderSlots();
+  saveSlots();
 }
 
 function openBookForm(id, btnEl) {
@@ -460,7 +466,10 @@ function openBookForm(id, btnEl) {
       id: 'b' + Date.now() + Math.random().toString(36).slice(2, 6),
       start, end, name, topic, urgency
     });
-    saveSlots().then(() => { closeModal(); renderSlots(); showToast('登記成功'); });
+    closeModal();
+    renderSlots();
+    showToast('登記成功');
+    saveSlots();
   };
   $('tmpCancel').onclick = closeModal;
 }
@@ -470,7 +479,8 @@ function addSlotFromInputs(startId, endId) {
   const end = $(endId).value;
   if (!start || !end || start >= end) { showToast('請確認開始與結束時間'); return; }
   slots.push({ id: 's' + Date.now() + Math.random().toString(36).slice(2,6), start, end, bookings: [] });
-  saveSlots().then(renderSlots);
+  renderSlots();
+  saveSlots();
 }
 
 $('addSlotAMBtn').onclick = () => addSlotFromInputs('startTimeAM', 'endTimeAM');
