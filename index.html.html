@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>老闆時段登記板</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+    background: #F3F4F1;
+    color: #1E2422;
+    padding: 24px 16px 80px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+
+  header { margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: 0.2px; }
+  .sub { font-size: 13px; color: #5C665F; margin: 0; }
+
+  .datebar {
+    display: flex; gap: 8px; margin: 18px 0 16px; overflow-x: auto;
+  }
+  .datebtn {
+    flex: 0 0 auto; padding: 8px 14px; border-radius: 999px;
+    border: 1px solid #C7CFC5; background: #fff; font-size: 13px;
+    cursor: pointer; color: #445048; white-space: nowrap;
+  }
+  .datebtn.active { background: #29453B; color: #fff; border-color: #29453B; }
+
+  .card {
+    background: #fff; border: 1px solid #DDE3D8; border-radius: 12px;
+    padding: 16px; margin-bottom: 12px;
+  }
+  .empty {
+    text-align: center; color: #8A9289; font-size: 14px; padding: 28px 12px;
+    border: 1px dashed #C7CFC5; border-radius: 12px; background: #FAFBF9;
+  }
+
+  .slot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .slot + .slot { border-top: 1px solid #EEF0EC; margin-top: 10px; padding-top: 10px; }
+  .time { font-size: 15px; font-weight: 700; min-width: 96px; }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 14px; font-weight: 700; }
+  .topic { font-size: 13px; color: #5C665F; margin-top: 2px; word-break: break-word; }
+  .status-open { color: #29453B; font-size: 13px; font-weight: 700; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+  .tag-open { background: #E4EEE6; color: #1F5133; }
+  .tag-booked { background: #F3E7D6; color: #7A4A16; }
+  .tag-green { background: #E4EEE6; color: #1F5133; }
+  .tag-yellow { background: #FCEFC7; color: #7A5B06; }
+  .tag-red { background: #F9DCD6; color: #8A2A16; }
+
+  button.action {
+    border: 1px solid #29453B; background: #29453B; color: #fff;
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  }
+  button.action.secondary {
+    background: #fff; color: #29453B;
+  }
+  button.action.danger {
+    background: #fff; color: #A34B2E; border-color: #E0C4B6;
+  }
+  button.action:hover { opacity: 0.9; }
+
+  .addform {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #5C665F; }
+  .field input {
+    border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 10px; font-size: 14px;
+    background: #fff;
+  }
+  .field input[type=time] { width: 120px; }
+
+  h2.section { font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #29453B; }
+
+  .modal-bg {
+    position: relative; margin-top: 10px; padding: 12px; background: #FAFBF9;
+    border: 1px solid #DDE3D8; border-radius: 10px;
+  }
+  .modal-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .modal-row input { flex: 1; min-width: 140px; }
+  .modal-row select {
+    border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 6px; font-size: 13px;
+    background: #fff; flex: 0 0 auto;
+  }
+
+  .hint { font-size: 12px; color: #8A9289; margin-top: 6px; line-height: 1.6; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #29453B; color: #fff; padding: 10px 18px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .login-screen {
+    max-width: 360px; margin: 80px auto; text-align: center;
+    background: #fff; border: 1px solid #DDE3D8; border-radius: 12px;
+    padding: 32px 24px;
+  }
+  .login-screen h2 { font-size: 16px; margin: 0 0 8px; }
+  .login-screen p { font-size: 13px; color: #5C665F; margin: 0 0 20px; }
+  #googleBtnContainer { display: flex; justify-content: center; }
+  .login-denied { color: #A34B2E; font-size: 13px; margin-top: 14px; display: none; }
+  .user-badge {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    font-size: 12px; color: #5C665F; margin-bottom: 6px;
+  }
+  .user-badge button {
+    border: none; background: none; color: #8A9289; text-decoration: underline;
+    cursor: pointer; font-size: 12px; padding: 0;
+  }
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<div id="loginScreen" class="login-screen">
+  <h2>老闆時段登記板</h2>
+  <p>請使用公司 Google 帳號登入</p>
+  <div id="googleBtnContainer"></div>
+  <p class="login-denied" id="loginDenied">這個帳號不屬於公司網域，無法使用。</p>
+</div>
+
+<div class="wrap" id="mainApp" style="display:none;">
+  <div class="user-badge">
+    <span id="userBadgeText"></span>
+    <button id="logoutBtn">登出</button>
+  </div>
+  <header>
+    <h1>老闆時段登記板</h1>
+    <p class="sub">先開放時段，同事自行登記，先搶先贏。所有人看到的是同一份資料。</p>
+  </header>
+
+  <div class="datebar" id="datebar"></div>
+
+  <div class="card">
+    <h2 class="section">開放新時段</h2>
+    <div class="addform" style="margin-bottom:10px;">
+      <span style="font-size:13px; font-weight:700; color:#29453B; min-width:36px;">上午</span>
+      <div class="field">
+        <label>開始時間</label>
+        <input type="time" id="startTimeAM" value="09:00">
+      </div>
+      <div class="field">
+        <label>結束時間</label>
+        <input type="time" id="endTimeAM" value="12:00">
+      </div>
+      <button class="action" id="addSlotAMBtn">開放上午時段</button>
+    </div>
+    <div class="addform">
+      <span style="font-size:13px; font-weight:700; color:#29453B; min-width:36px;">下午</span>
+      <div class="field">
+        <label>開始時間</label>
+        <input type="time" id="startTimePM" value="14:00">
+      </div>
+      <div class="field">
+        <label>結束時間</label>
+        <input type="time" id="endTimePM" value="17:00">
+      </div>
+      <button class="action" id="addSlotPMBtn">開放下午時段</button>
+    </div>
+    <p class="hint">行政或老闆本人都可以開放時段；老闆隨時可以自己新增或調整。</p>
+  </div>
+
+  <div class="card">
+    <h2 class="section" id="listTitle">今天的時段</h2>
+    <div id="slotList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwRNRL4RyWb2h_R-k_brrroguPY8VoxKnsw82tRPofq7w4D8ZX1obxWvaUavIDGvdz5AQ/exec';
+let selectedDate = todayStr();
+let slots = [];
+
+function todayStr(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function dsFromDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function getWeekMondayFri() {
+  const d = new Date();
+  const dow = d.getDay(); // 0=Sun ... 6=Sat
+  const diffToMon = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMon);
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    days.push(day);
+  }
+  return days;
+}
+
+function fmtLabel(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const wd = ["日","一","二","三","四","五","六"][d.getDay()];
+  return `${d.getMonth()+1}/${d.getDate()}（週${wd}）`;
+}
+
+function buildDateBar() {
+  const bar = $('datebar');
+  bar.innerHTML = '';
+  const days = getWeekMondayFri();
+  const todayDs = todayStr();
+  days.forEach(day => {
+    const ds = dsFromDate(day);
+    const wd = ["日","一","二","三","四","五","六"][day.getDay()];
+    const btn = document.createElement('button');
+    btn.className = 'datebtn' + (ds === selectedDate ? ' active' : '');
+    btn.textContent = `${day.getMonth()+1}/${day.getDate()}（${wd}）` + (ds === todayDs ? '・今天' : '');
+    btn.onclick = () => { selectedDate = ds; buildDateBar(); loadSlots(); };
+    bar.appendChild(btn);
+  });
+}
+
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function loadSlots() {
+  if (modalOpen) return;
+  $('listTitle').textContent = fmtLabel(dateOffset(selectedDate)) + ' 的時段';
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + selectedDate)}`);
+    const data = await res.json();
+    slots = data && data.value ? JSON.parse(data.value) : [];
+  } catch (e) {
+    slots = [];
+  }
+  renderSlots();
+}
+
+function dateOffset(ds) {
+  const target = new Date(ds + 'T00:00:00');
+  const today = new Date(todayStr() + 'T00:00:00');
+  return Math.round((target - today) / 86400000);
+}
+
+async function saveSlots() {
+  try {
+    const key = 'board:' + selectedDate;
+    const value = JSON.stringify(slots);
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`);
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error('save failed');
+  } catch (e) {
+    showToast('儲存失敗，請重試');
+  }
+}
+
+const DURATIONS = [15, 30, 45, 60];
+let modalOpen = false;
+
+function toMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+function toTimeStr(mins) {
+  const h = Math.floor(mins / 60).toString().padStart(2, '0');
+  const m = (mins % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function freeWindows(block) {
+  const bookings = (block.bookings || []).slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+  const windows = [];
+  let cursor = toMinutes(block.start);
+  const blockEnd = toMinutes(block.end);
+  bookings.forEach(b => {
+    const bs = toMinutes(b.start);
+    if (bs > cursor) windows.push([cursor, bs]);
+    cursor = Math.max(cursor, toMinutes(b.end));
+  });
+  if (cursor < blockEnd) windows.push([cursor, blockEnd]);
+  return windows;
+}
+
+function getStartOptions(block, duration) {
+  const windows = freeWindows(block);
+  const options = [];
+  windows.forEach(([ws, we]) => {
+    for (let t = ws; t + duration <= we; t += 15) {
+      options.push(toTimeStr(t));
+    }
+  });
+  return options;
+}
+
+function renderSlots() {
+  const list = $('slotList');
+  if (!slots.length) {
+    list.innerHTML = '<div class="empty">目前沒有開放的時段，先用上面的表單開放一個吧。</div>';
+    return;
+  }
+  const sorted = [...slots].sort((a, b) => a.start.localeCompare(b.start));
+  list.innerHTML = '';
+  sorted.forEach(block => {
+    const wrap = document.createElement('div');
+    wrap.className = 'slot';
+    wrap.style.flexDirection = 'column';
+    wrap.style.alignItems = 'stretch';
+
+    const bookings = (block.bookings || []).slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    const hasRoom = getStartOptions(block, 15).length > 0;
+
+    let bookingsHtml = '';
+    bookings.forEach(bk => {
+      const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
+      bookingsHtml += `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid #EEF0EC;">
+          <div class="time" style="min-width:96px;">${bk.start}–${bk.end}</div>
+          <div class="meta">
+            <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
+            <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
+          </div>
+          <button class="action danger" data-blockid="${block.id}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
+        </div>`;
+    });
+
+    wrap.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div class="time">${block.start}–${block.end}</div>
+        <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
+        ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
+        <button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>
+      </div>
+      ${bookingsHtml}
+    `;
+    list.appendChild(wrap);
+  });
+
+  list.querySelectorAll('button[data-act="book"], button[data-act="remove"]').forEach(btn => {
+    btn.onclick = () => handleAction(btn.dataset.id, btn.dataset.act, btn);
+  });
+  list.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
+    btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function handleAction(id, act, btnEl) {
+  if (act === 'remove') {
+    slots = slots.filter(s => s.id !== id);
+    saveSlots().then(renderSlots);
+    return;
+  }
+  if (act === 'book') {
+    openBookForm(id, btnEl);
+  }
+}
+
+function cancelBooking(blockId, bookingId) {
+  const block = slots.find(s => s.id === blockId);
+  if (!block) return;
+  block.bookings = (block.bookings || []).filter(b => b.id !== bookingId);
+  saveSlots().then(renderSlots);
+}
+
+function openBookForm(id, btnEl) {
+  const existing = document.querySelector('.modal-bg');
+  if (existing) existing.remove();
+  const block = slots.find(s => s.id === id);
+  modalOpen = true;
+
+  const box = document.createElement('div');
+  box.className = 'modal-bg';
+
+  function durationOptionsHtml(selected) {
+    return DURATIONS.map(d => `<option value="${d}" ${d === selected ? 'selected' : ''}>${d}分鐘</option>`).join('');
+  }
+
+  function startOptionsHtml(duration) {
+    const opts = getStartOptions(block, duration);
+    if (!opts.length) return '<option value="">這個時長已無空檔</option>';
+    return opts.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  box.innerHTML = `
+    <div class="modal-row" style="align-items:center;">
+      <select id="tmpStart" style="width:90px;">${startOptionsHtml(30)}</select>
+      <select id="tmpDuration" style="width:90px;">${durationOptionsHtml(30)}</select>
+      <input type="text" id="tmpName" placeholder="你的名字" value="${escapeHtml(window.currentUserName || '')}" style="flex:1; min-width:100px;">
+      <select id="tmpUrgency" style="width:80px;">
+        <option value="yellow">普通</option>
+        <option value="red">緊急</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <input type="text" id="tmpTopic" placeholder="想討論的主題（一句話即可）" style="flex:1;">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="action" id="tmpConfirm">確認登記</button>
+      <button class="action secondary" id="tmpCancel">取消</button>
+    </div>
+  `;
+  btnEl.closest('.slot').after(box);
+
+  $('tmpDuration').onchange = () => {
+    const duration = Number($('tmpDuration').value);
+    $('tmpStart').innerHTML = startOptionsHtml(duration);
+  };
+
+  function closeModal() {
+    modalOpen = false;
+    box.remove();
+  }
+
+  $('tmpConfirm').onclick = () => {
+    const name = $('tmpName').value.trim();
+    const topic = $('tmpTopic').value.trim();
+    const start = $('tmpStart').value;
+    const duration = Number($('tmpDuration').value);
+    const urgency = $('tmpUrgency').value;
+    if (!name) { showToast('請先填寫名字'); return; }
+    if (!start) { showToast('這個時長沒有空檔了，請換一個時長'); return; }
+    const end = toTimeStr(toMinutes(start) + duration);
+    const target = slots.find(s => s.id === id);
+    const stillFree = getStartOptions(target, duration).includes(start);
+    if (!stillFree) { showToast('這個時間剛被別人搶先登記了，請重新選擇'); $('tmpStart').innerHTML = startOptionsHtml(duration); return; }
+    target.bookings = target.bookings || [];
+    target.bookings.push({
+      id: 'b' + Date.now() + Math.random().toString(36).slice(2, 6),
+      start, end, name, topic, urgency
+    });
+    saveSlots().then(() => { closeModal(); renderSlots(); showToast('登記成功'); });
+  };
+  $('tmpCancel').onclick = closeModal;
+}
+
+function addSlotFromInputs(startId, endId) {
+  const start = $(startId).value;
+  const end = $(endId).value;
+  if (!start || !end || start >= end) { showToast('請確認開始與結束時間'); return; }
+  slots.push({ id: 's' + Date.now() + Math.random().toString(36).slice(2,6), start, end, bookings: [] });
+  saveSlots().then(renderSlots);
+}
+
+$('addSlotAMBtn').onclick = () => addSlotFromInputs('startTimeAM', 'endTimeAM');
+$('addSlotPMBtn').onclick = () => addSlotFromInputs('startTimePM', 'endTimePM');
+
+// ===== Google 登入（限制公司網域） =====
+// 設定步驟：
+// 1. 到 https://console.cloud.google.com/ 建一個專案（或用現有的）
+// 2. 「API 和服務」→「憑證」→「建立憑證」→「OAuth 用戶端 ID」，類型選「網頁應用程式」
+// 3. 「已授權的 JavaScript 來源」填入這個網頁實際的網址（例如 https://claude.ai 或你發布後的網址）
+// 4. 建立後會拿到一組 Client ID，貼到下面 GOOGLE_CLIENT_ID
+// 5. ALLOWED_DOMAINS 改成公司 Google 帳號的網域（可以填多個）
+const GOOGLE_CLIENT_ID = '760769778758-3um9llcqo5jfsc3klsi6t68v1uc0hvfr.apps.googleusercontent.com';
+const ALLOWED_DOMAINS = ['w-power.com.tw', 'wenergy.com.tw'];
+
+function decodeJwt(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join('')));
+  } catch (e) {
+    return null;
+  }
+}
+
+function handleGoogleLogin(response) {
+  const payload = decodeJwt(response.credential);
+  if (!payload) { showToast('登入解析失敗，請重試'); return; }
+  const email = payload.email || '';
+  const domain = (email.split('@')[1] || '').toLowerCase();
+  const allowed = ALLOWED_DOMAINS.some(d => d.toLowerCase() === domain);
+  if (!allowed) {
+    $('loginDenied').style.display = 'block';
+    return;
+  }
+  $('loginDenied').style.display = 'none';
+  $('loginScreen').style.display = 'none';
+  $('mainApp').style.display = 'block';
+  $('userBadgeText').textContent = `${payload.name || email}（${email}）`;
+  window.currentUserName = payload.name || email;
+  initApp();
+}
+
+$('logoutBtn').onclick = () => {
+  $('mainApp').style.display = 'none';
+  $('loginScreen').style.display = 'block';
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.disableAutoSelect();
+  }
+};
+
+window.onload = () => {
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleLogin
+    });
+    google.accounts.id.renderButton($('googleBtnContainer'), { theme: 'outline', size: 'large', text: 'signin_with' });
+  }
+};
+
+function initApp() {
+  buildDateBar();
+  loadSlots();
+  if (!window._pollingStarted) {
+    window._pollingStarted = true;
+    setInterval(loadSlots, 8000);
+  }
+}
+</script>
+</body>
+</html>
