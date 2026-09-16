@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>老闆時段登記板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%93%85</text></svg>">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -37,6 +38,23 @@
     text-align: center; color: #8A9289; font-size: 14px; padding: 28px 12px;
     border: 1px dashed #C7CFC5; border-radius: 12px; background: #FAFBF9;
   }
+
+  .skeleton-row {
+    height: 52px; border-radius: 10px; margin-bottom: 10px;
+    background: linear-gradient(90deg, #EFEFEA 25%, #F8F8F5 37%, #EFEFEA 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+  .skeleton-row:last-child { margin-bottom: 0; }
+  @keyframes skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fade-in 0.25s ease both; }
 
   .slot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .slot + .slot { border-top: 1px solid #EEF0EC; margin-top: 10px; padding-top: 10px; }
@@ -249,8 +267,8 @@ function buildDateBar() {
         slots = boardCache[ds];
         renderSlots();
       } else {
-        $('openSlotList').innerHTML = '<div class="empty">載入中…</div>';
-        $('bookedList').innerHTML = '<div class="empty">載入中…</div>';
+        $('openSlotList').innerHTML = skeletonHtml(2);
+        $('bookedList').innerHTML = skeletonHtml(3);
       }
       if (priorityCache[ds]) {
         priorityQueue = priorityCache[ds];
@@ -264,6 +282,13 @@ function buildDateBar() {
     };
     bar.appendChild(btn);
   });
+}
+
+function skeletonHtml(count) {
+  count = count || 2;
+  let html = '';
+  for (let i = 0; i < count; i++) html += '<div class="skeleton-row"></div>';
+  return html;
 }
 
 function showToast(msg) {
@@ -425,7 +450,7 @@ function renderSlots() {
   sortedBlocks.forEach(block => {
     const hasRoom = getStartOptions(block, 15).length > 0;
     const row = document.createElement('div');
-    row.className = 'slot';
+    row.className = 'slot fade-in';
     row.innerHTML = `
       <div class="time">${block.start}–${block.end}</div>
       <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
@@ -451,13 +476,13 @@ function renderSlots() {
     bookedList.innerHTML = '<div class="empty">目前還沒有人登記。</div>';
   } else {
     bookedList.innerHTML = '';
-    allBookings.forEach(bk => {
+    allBookings.forEach((bk, idx) => {
       const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
       const carriedTag = bk.carriedOver ? '<span class="tag" style="background:#EAEAE7;color:#5C665F;">已延至隔天</span>' : '';
       const row = document.createElement('div');
-      row.className = 'slot';
+      row.className = 'slot fade-in';
       row.innerHTML = `
-        <div class="time">${bk.start}–${bk.end}</div>
+        <div class="time">${idx + 1}. ${bk.start}–${bk.end}</div>
         <div class="meta">
           <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span> ${carriedTag}</div>
           <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
@@ -490,7 +515,7 @@ function renderPriority() {
   priorityQueue.forEach(p => {
     const urgencyLabel = p.urgency === 'red' ? '緊急' : '普通';
     const row = document.createElement('div');
-    row.className = 'slot';
+    row.className = 'slot fade-in';
     row.innerHTML = `
       <div class="meta">
         <div class="name">${escapeHtml(p.name)} <span class="tag tag-${p.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
