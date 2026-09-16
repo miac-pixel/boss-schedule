@@ -151,9 +151,14 @@
     <p class="sub">手刀登記，先搶先贏，大家看到的都是同一份行程表 🏃</p>
   </header>
 
-  <div class="datebar" id="datebar"></div>
+  <div style="display:flex; align-items:center; gap:8px; margin-top:18px;">
+    <button id="prevWeekBtn" class="action secondary" style="padding:8px 12px; flex:0 0 auto;">‹</button>
+    <div class="datebar" id="datebar" style="flex:1; margin:0;"></div>
+    <button id="nextWeekBtn" class="action secondary" style="padding:8px 12px; flex:0 0 auto;">›</button>
+  </div>
+  <div style="height:16px;"></div>
 
-  <div class="card">
+  <div class="card" id="openSlotFormCard">
     <h2 class="section">開放新時段</h2>
     <p class="hint" style="margin-top:-4px;">行政或老闆本人都可以開放時段；老闆隨時可以自己新增或調整。</p>
     <div class="addform" style="margin-bottom:10px;">
@@ -224,8 +229,11 @@ function dsFromDate(d) {
   return `${y}-${m}-${day}`;
 }
 
+let weekOffset = 0;
+
 function getWeekMondayFri() {
   const d = new Date();
+  d.setDate(d.getDate() + weekOffset * 7);
   const dow = d.getDay(); // 0=Sun ... 6=Sat
   const diffToMon = dow === 0 ? -6 : 1 - dow;
   const monday = new Date(d);
@@ -246,6 +254,30 @@ function fmtLabel(offset) {
   return `${d.getMonth()+1}/${d.getDate()}（週${wd}）`;
 }
 
+function switchToDate(ds) {
+  const existingModal = document.querySelector('.modal-bg');
+  if (existingModal) { modalOpen = false; existingModal.remove(); }
+  selectedDate = ds;
+  buildDateBar();
+
+  if (boardCache[ds]) {
+    slots = boardCache[ds];
+    renderSlots();
+  } else {
+    $('openSlotList').innerHTML = skeletonHtml(2);
+    $('bookedList').innerHTML = skeletonHtml(3);
+  }
+  if (priorityCache[ds]) {
+    priorityQueue = priorityCache[ds];
+    renderPriority();
+  } else {
+    $('priorityCard').style.display = 'none';
+  }
+
+  loadSlots(true);
+  loadPriority(true);
+}
+
 function buildDateBar() {
   const bar = $('datebar');
   bar.innerHTML = '';
@@ -257,32 +289,21 @@ function buildDateBar() {
     const btn = document.createElement('button');
     btn.className = 'datebtn' + (ds === selectedDate ? ' active' : '');
     btn.textContent = `${day.getMonth()+1}/${day.getDate()}（${wd}）` + (ds === todayDs ? '・今天' : '');
-    btn.onclick = () => {
-      const existingModal = document.querySelector('.modal-bg');
-      if (existingModal) { modalOpen = false; existingModal.remove(); }
-      selectedDate = ds;
-      buildDateBar();
-
-      if (boardCache[ds]) {
-        slots = boardCache[ds];
-        renderSlots();
-      } else {
-        $('openSlotList').innerHTML = skeletonHtml(2);
-        $('bookedList').innerHTML = skeletonHtml(3);
-      }
-      if (priorityCache[ds]) {
-        priorityQueue = priorityCache[ds];
-        renderPriority();
-      } else {
-        $('priorityCard').style.display = 'none';
-      }
-
-      loadSlots(true);
-      loadPriority(true);
-    };
+    btn.onclick = () => switchToDate(ds);
     bar.appendChild(btn);
   });
 }
+
+$('prevWeekBtn').onclick = () => {
+  weekOffset--;
+  const days = getWeekMondayFri();
+  switchToDate(dsFromDate(days[0]));
+};
+$('nextWeekBtn').onclick = () => {
+  weekOffset++;
+  const days = getWeekMondayFri();
+  switchToDate(dsFromDate(days[0]));
+};
 
 function skeletonHtml(count) {
   count = count || 2;
@@ -455,7 +476,7 @@ function renderSlots() {
       <div class="time">${block.start}–${block.end}</div>
       <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
       ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
-      <button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>
+      ${isAdmin ? `<button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>` : ''}
     `;
     openList.appendChild(row);
   });
@@ -491,6 +512,7 @@ function renderSlots() {
           <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
         </div>
         <div style="display:flex; gap:6px;">
+          <button class="action secondary" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="edit">編輯</button>
           ${!bk.carriedOver ? `<button class="action secondary" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="carryOver">延到隔天</button>` : ''}
           <button class="action danger" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
         </div>
@@ -502,6 +524,9 @@ function renderSlots() {
     });
     bookedList.querySelectorAll('button[data-act="carryOver"]').forEach(btn => {
       btn.onclick = () => carryOverBooking(btn.dataset.blockid, btn.dataset.bookingid);
+    });
+    bookedList.querySelectorAll('button[data-act="edit"]').forEach(btn => {
+      btn.onclick = () => openEditForm(btn.dataset.blockid, btn.dataset.bookingid, btn);
     });
   }
 }
@@ -553,6 +578,51 @@ function carryOverBooking(blockId, bookingId) {
     name: bk.name, topic: bk.topic, urgency: bk.urgency, fromDate: selectedDate
   });
   showToast('已加入隔天的優先登記名單');
+}
+
+function openEditForm(blockId, bookingId, btnEl) {
+  const existing = document.querySelector('.modal-bg');
+  if (existing) existing.remove();
+  const block = slots.find(s => s.id === blockId);
+  const bk = block && (block.bookings || []).find(b => b.id === bookingId);
+  if (!bk) return;
+  modalOpen = true;
+
+  const box = document.createElement('div');
+  box.className = 'modal-bg';
+  box.innerHTML = `
+    <div class="modal-row" style="align-items:center;">
+      <span style="font-size:13px; font-weight:700; color:#F28500; min-width:80px;">${bk.start}–${bk.end}</span>
+      <input type="text" id="editName" value="${escapeHtml(bk.name)}" placeholder="名字" style="flex:1; min-width:100px;">
+      <select id="editUrgency" style="width:80px;">
+        <option value="yellow" ${bk.urgency !== 'red' ? 'selected' : ''}>普通</option>
+        <option value="red" ${bk.urgency === 'red' ? 'selected' : ''}>緊急</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <input type="text" id="editTopic" value="${escapeHtml(bk.topic || '')}" placeholder="想討論的主題" style="flex:1;">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="action" id="editConfirm">儲存</button>
+      <button class="action secondary" id="editCancel">取消</button>
+    </div>
+  `;
+  btnEl.closest('.slot').after(box);
+
+  function closeModal() { modalOpen = false; box.remove(); }
+
+  $('editConfirm').onclick = () => {
+    const name = $('editName').value.trim();
+    if (!name) { showToast('請填寫名字'); return; }
+    bk.name = name;
+    bk.topic = $('editTopic').value.trim();
+    bk.urgency = $('editUrgency').value;
+    closeModal();
+    renderSlots();
+    showToast('已更新');
+    saveSlots();
+  };
+  $('editCancel').onclick = closeModal;
 }
 
 function escapeHtml(str) {
@@ -684,6 +754,22 @@ $('addSlotPMBtn').onclick = () => addSlotFromInputs('startTimePM', 'endTimePM');
 const GOOGLE_CLIENT_ID = '760769778758-3um9llcqo5jfsc3klsi6t68v1uc0hvfr.apps.googleusercontent.com';
 const ALLOWED_DOMAINS = ['w-power.com.tw', 'wenergy.com.tw'];
 
+// 「開放新時段」「刪除整段」只開放給下面這些 email（行政、老闆）
+// 把實際的帳號填進來，例如 ['boss@w-power.com.tw', 'admin@wenergy.com.tw']
+const ADMIN_EMAILS = [
+  'rusen.wu@wenergy.com.tw',
+  'belinda.yeh@wenergy.com.tw',
+  'avon.cheng@wenergy.com.tw',
+  'miac@w-power.com.tw'
+];
+
+let isAdmin = false;
+
+function applyRolePermissions(email) {
+  isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes((email || '').toLowerCase());
+  $('openSlotFormCard').style.display = isAdmin ? 'block' : 'none';
+}
+
 function decodeJwt(token) {
   try {
     const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -710,6 +796,7 @@ function handleGoogleLogin(response) {
   $('mainApp').style.display = 'block';
   $('userBadgeText').textContent = `${payload.name || email}（${email}）`;
   window.currentUserName = payload.name || email;
+  applyRolePermissions(email);
   try {
     localStorage.setItem('boardUser', JSON.stringify({
       name: payload.name || email, email, ts: Date.now()
@@ -745,6 +832,7 @@ function tryRestoreSession() {
     $('mainApp').style.display = 'block';
     $('userBadgeText').textContent = `${saved.name}（${saved.email}）`;
     window.currentUserName = saved.name;
+    applyRolePermissions(saved.email);
     initApp();
     return true;
   } catch (e) {
