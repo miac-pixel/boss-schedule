@@ -20,12 +20,12 @@
   .sub { font-size: 13px; color: #5C665F; margin: 0; }
 
   .datebar {
-    display: flex; gap: 8px; margin: 18px 0 16px; overflow-x: auto;
+    display: flex; gap: 8px; margin: 18px 0 16px;
   }
   .datebtn {
-    flex: 0 0 auto; padding: 8px 14px; border-radius: 999px;
+    flex: 1 1 0; padding: 8px 6px; border-radius: 999px;
     border: 1px solid #C7CFC5; background: #fff; font-size: 13px;
-    cursor: pointer; color: #445048; white-space: nowrap;
+    cursor: pointer; color: #445048; white-space: nowrap; text-align: center;
   }
   .datebtn.active { background: #F28500; color: #fff; border-color: #F28500; }
 
@@ -47,8 +47,6 @@
   .status-open { color: #F28500; font-size: 13px; font-weight: 700; }
   .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
   .tag-open { background: #E4EEE6; color: #1F5133; }
-  .tag-booked { background: #F3E7D6; color: #7A4A16; }
-  .tag-green { background: #E4EEE6; color: #1F5133; }
   .tag-yellow { background: #FCEFC7; color: #7A5B06; }
   .tag-red { background: #F9DCD6; color: #8A2A16; }
 
@@ -132,7 +130,7 @@
   </div>
   <header>
     <h1>老闆時段登記板</h1>
-    <p class="sub">先開放時段，同事自行登記，先搶先贏。所有人看到的是同一份資料。</p>
+    <p class="sub">手刀登記，先搶先贏，大家看到的都是同一份行程表 🏃</p>
   </header>
 
   <div class="datebar" id="datebar"></div>
@@ -166,6 +164,12 @@
     <p class="hint">行政或老闆本人都可以開放時段；老闆隨時可以自己新增或調整。</p>
   </div>
 
+  <div class="card" id="priorityCard" style="display:none;">
+    <h2 class="section">優先登記名單（延續討論）</h2>
+    <div id="priorityList"></div>
+    <p class="hint">這些人是從前一天延續下來的，安排時段時建議優先處理。</p>
+  </div>
+
   <div class="card">
     <h2 class="section">可預約時段</h2>
     <div id="openSlotList"></div>
@@ -184,6 +188,8 @@ const $ = (id) => document.getElementById(id);
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwRNRL4RyWb2h_R-k_brrroguPY8VoxKnsw82tRPofq7w4D8ZX1obxWvaUavIDGvdz5AQ/exec';
 let selectedDate = todayStr();
 let slots = [];
+let priorityQueue = [];
+let pendingPriorityFill = null;
 
 function todayStr(offset = 0) {
   const d = new Date();
@@ -228,7 +234,14 @@ function buildDateBar() {
     const btn = document.createElement('button');
     btn.className = 'datebtn' + (ds === selectedDate ? ' active' : '');
     btn.textContent = `${day.getMonth()+1}/${day.getDate()}（${wd}）` + (ds === todayDs ? '・今天' : '');
-    btn.onclick = () => { selectedDate = ds; buildDateBar(); loadSlots(); };
+    btn.onclick = () => {
+      const existingModal = document.querySelector('.modal-bg');
+      if (existingModal) { modalOpen = false; existingModal.remove(); }
+      selectedDate = ds;
+      buildDateBar();
+      loadSlots(true);
+      loadPriority(true);
+    };
     bar.appendChild(btn);
   });
 }
@@ -240,8 +253,8 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-async function loadSlots() {
-  if (modalOpen) return;
+async function loadSlots(force) {
+  if (!force && (modalOpen || saveInFlight > 0)) return;
   let fetched;
   try {
     const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + selectedDate)}`);
@@ -256,6 +269,62 @@ async function loadSlots() {
   renderSlots();
 }
 
+async function loadPriority(force) {
+  if (!force && (modalOpen || saveInFlight > 0)) return;
+  const dateAtRequest = selectedDate;
+  let fetched;
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('priority:' + dateAtRequest)}`);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    fetched = data && data.value ? JSON.parse(data.value) : [];
+  } catch (e) {
+    return;
+  }
+  if (dateAtRequest !== selectedDate) return; // 使用者在等待回應時已經切換日期，這筆資料過期了，丟掉
+  priorityQueue = fetched;
+  renderPriority();
+}
+
+async function savePriorityQueueForDate(dateStr, list) {
+  saveInFlight++;
+  try {
+    const key = 'priority:' + dateStr;
+    const value = JSON.stringify(list);
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`);
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error('save failed');
+  } catch (e) {
+    showToast('操作失敗，請重試');
+  } finally {
+    saveInFlight--;
+  }
+}
+
+// 把一筆延續討論加進「某一天」的優先名單，可以是不同於目前畫面上顯示的日期（例如今天延到明天）
+async function addToPriorityQueue(dateStr, item) {
+  let list = [];
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('priority:' + dateStr)}`);
+    const data = await res.json();
+    list = data && data.value ? JSON.parse(data.value) : [];
+  } catch (e) {
+    // 讀不到就當作空清單，直接用新的一筆蓋掉；機率很低且影響不大
+  }
+  list.push(item);
+  await savePriorityQueueForDate(dateStr, list);
+  if (dateStr === selectedDate) {
+    priorityQueue = list;
+    renderPriority();
+  }
+}
+
+async function removeFromPriorityQueue(priorityId) {
+  priorityQueue = priorityQueue.filter(p => p.id !== priorityId);
+  renderPriority();
+  savePriorityQueueForDate(selectedDate, priorityQueue);
+}
+
 function dateOffset(ds) {
   const target = new Date(ds + 'T00:00:00');
   const today = new Date(todayStr() + 'T00:00:00');
@@ -263,6 +332,7 @@ function dateOffset(ds) {
 }
 
 async function saveSlots() {
+  saveInFlight++;
   try {
     const key = 'board:' + selectedDate;
     const value = JSON.stringify(slots);
@@ -271,11 +341,14 @@ async function saveSlots() {
     if (!data || !data.ok) throw new Error('save failed');
   } catch (e) {
     showToast('儲存失敗，請重試');
+  } finally {
+    saveInFlight--;
   }
 }
 
 const DURATIONS = [15, 30, 45, 60];
 let modalOpen = false;
+let saveInFlight = 0;
 
 function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -356,22 +429,78 @@ function renderSlots() {
     bookedList.innerHTML = '';
     allBookings.forEach(bk => {
       const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
+      const carriedTag = bk.carriedOver ? '<span class="tag" style="background:#EAEAE7;color:#5C665F;">已延至隔天</span>' : '';
       const row = document.createElement('div');
       row.className = 'slot';
       row.innerHTML = `
         <div class="time">${bk.start}–${bk.end}</div>
         <div class="meta">
-          <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
+          <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span> ${carriedTag}</div>
           <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
         </div>
-        <button class="action danger" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
+        <div style="display:flex; gap:6px;">
+          ${!bk.carriedOver ? `<button class="action secondary" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="carryOver">延到隔天</button>` : ''}
+          <button class="action danger" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
+        </div>
       `;
       bookedList.appendChild(row);
     });
     bookedList.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
       btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
     });
+    bookedList.querySelectorAll('button[data-act="carryOver"]').forEach(btn => {
+      btn.onclick = () => carryOverBooking(btn.dataset.blockid, btn.dataset.bookingid);
+    });
   }
+}
+
+function renderPriority() {
+  const card = $('priorityCard');
+  const list = $('priorityList');
+  if (!priorityQueue.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  list.innerHTML = '';
+  priorityQueue.forEach(p => {
+    const urgencyLabel = p.urgency === 'red' ? '緊急' : '普通';
+    const row = document.createElement('div');
+    row.className = 'slot';
+    row.innerHTML = `
+      <div class="meta">
+        <div class="name">${escapeHtml(p.name)} <span class="tag tag-${p.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span></div>
+        <div class="topic">${escapeHtml(p.topic || '（未填主題）')}（延續自 ${p.fromDate || '昨天'}）</div>
+      </div>
+      <button class="action" data-id="${p.id}" data-act="fillPriority">登記進時段</button>
+    `;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('button[data-act="fillPriority"]').forEach(btn => {
+    btn.onclick = () => {
+      const item = priorityQueue.find(p => p.id === btn.dataset.id);
+      if (!item) return;
+      pendingPriorityFill = item;
+      showToast('已幫你帶入資料，請點下方任一開放時段的「登記」按鈕');
+    };
+  });
+}
+
+function carryOverBooking(blockId, bookingId) {
+  const block = slots.find(s => s.id === blockId);
+  if (!block) return;
+  const bk = (block.bookings || []).find(b => b.id === bookingId);
+  if (!bk) return;
+  bk.carriedOver = true;
+  renderSlots();
+  saveSlots();
+
+  const nextDate = dsFromDate(new Date(new Date(selectedDate + 'T00:00:00').getTime() + 86400000));
+  addToPriorityQueue(nextDate, {
+    id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
+    name: bk.name, topic: bk.topic, urgency: bk.urgency, fromDate: selectedDate
+  });
+  showToast('已加入隔天的優先登記名單');
 }
 
 function escapeHtml(str) {
@@ -419,19 +548,22 @@ function openBookForm(id, btnEl) {
     return opts.map(t => `<option value="${t}">${t}</option>`).join('');
   }
 
+  const prefill = pendingPriorityFill;
+
   box.innerHTML = `
     <div class="modal-row" style="align-items:center;">
       <select id="tmpStart" style="width:90px;">${startOptionsHtml(30)}</select>
       <select id="tmpDuration" style="width:90px;">${durationOptionsHtml(30)}</select>
-      <input type="text" id="tmpName" placeholder="你的名字" value="${escapeHtml(window.currentUserName || '')}" style="flex:1; min-width:100px;">
+      <input type="text" id="tmpName" placeholder="你的名字" value="${escapeHtml((prefill && prefill.name) || window.currentUserName || '')}" style="flex:1; min-width:100px;">
       <select id="tmpUrgency" style="width:80px;">
-        <option value="yellow">普通</option>
-        <option value="red">緊急</option>
+        <option value="yellow" ${prefill && prefill.urgency !== 'red' ? 'selected' : ''}>普通</option>
+        <option value="red" ${prefill && prefill.urgency === 'red' ? 'selected' : ''}>緊急</option>
       </select>
     </div>
     <div class="modal-row">
-      <input type="text" id="tmpTopic" placeholder="想討論的主題（一句話即可）" style="flex:1;">
+      <input type="text" id="tmpTopic" placeholder="想討論的主題（一句話即可）" value="${escapeHtml((prefill && prefill.topic) || '')}" style="flex:1;">
     </div>
+    ${prefill ? '<p class="hint" style="margin:-4px 0 8px;">已帶入延續登記的資料，登記後會自動從優先名單移除。</p>' : ''}
     <div style="display:flex; gap:8px;">
       <button class="action" id="tmpConfirm">確認登記</button>
       <button class="action secondary" id="tmpCancel">取消</button>
@@ -466,12 +598,16 @@ function openBookForm(id, btnEl) {
       id: 'b' + Date.now() + Math.random().toString(36).slice(2, 6),
       start, end, name, topic, urgency
     });
+    if (prefill) {
+      removeFromPriorityQueue(prefill.id);
+      pendingPriorityFill = null;
+    }
     closeModal();
     renderSlots();
     showToast('登記成功');
     saveSlots();
   };
-  $('tmpCancel').onclick = closeModal;
+  $('tmpCancel').onclick = () => { pendingPriorityFill = null; closeModal(); };
 }
 
 function addSlotFromInputs(startId, endId) {
@@ -564,23 +700,35 @@ function tryRestoreSession() {
   }
 }
 
-window.onload = () => {
-  if (tryRestoreSession()) return;
+function startGoogleButton(retriesLeft) {
+  if (retriesLeft === undefined) retriesLeft = 25;
   if (window.google && google.accounts && google.accounts.id) {
     google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
       callback: handleGoogleLogin
     });
     google.accounts.id.renderButton($('googleBtnContainer'), { theme: 'outline', size: 'large', text: 'signin_with' });
+    return;
   }
+  // Google 的登入腳本可能還沒載入完，稍等一下再試，最多重試 25 次（約 5 秒）
+  if (retriesLeft > 0) {
+    setTimeout(() => startGoogleButton(retriesLeft - 1), 200);
+  }
+}
+
+window.onload = () => {
+  if (tryRestoreSession()) return;
+  startGoogleButton();
 };
 
 function initApp() {
   buildDateBar();
-  loadSlots();
+  loadSlots(true);
+  loadPriority(true);
   if (!window._pollingStarted) {
     window._pollingStarted = true;
     setInterval(loadSlots, 8000);
+    setInterval(loadPriority, 8000);
   }
 }
 </script>
