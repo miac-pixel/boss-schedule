@@ -189,6 +189,8 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwRNRL4RyWb2h_R
 let selectedDate = todayStr();
 let slots = [];
 let priorityQueue = [];
+const boardCache = {};
+const priorityCache = {};
 let pendingPriorityFill = null;
 
 function todayStr(offset = 0) {
@@ -242,6 +244,21 @@ function buildDateBar() {
       if (existingModal) { modalOpen = false; existingModal.remove(); }
       selectedDate = ds;
       buildDateBar();
+
+      if (boardCache[ds]) {
+        slots = boardCache[ds];
+        renderSlots();
+      } else {
+        $('openSlotList').innerHTML = '<div class="empty">載入中…</div>';
+        $('bookedList').innerHTML = '<div class="empty">載入中…</div>';
+      }
+      if (priorityCache[ds]) {
+        priorityQueue = priorityCache[ds];
+        renderPriority();
+      } else {
+        $('priorityCard').style.display = 'none';
+      }
+
       loadSlots(true);
       loadPriority(true);
     };
@@ -258,9 +275,10 @@ function showToast(msg) {
 
 async function loadSlots(force) {
   if (!force && (modalOpen || saveInFlight > 0)) return;
+  const dateAtRequest = selectedDate;
   let fetched;
   try {
-    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + selectedDate)}`);
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('board:' + dateAtRequest)}`);
     if (!res.ok) throw new Error('bad response');
     const data = await res.json();
     fetched = data && data.value ? JSON.parse(data.value) : [];
@@ -268,6 +286,8 @@ async function loadSlots(force) {
     // 抓資料失敗（Apps Script 偶爾會這樣）：保留原本畫面，安靜等下一次自動重試，不要清空畫面造成閃爍
     return;
   }
+  boardCache[dateAtRequest] = fetched;
+  if (dateAtRequest !== selectedDate) return; // 使用者在等待回應時已經切換日期，這筆資料過期了，只更新快取，畫面不動
   slots = fetched;
   renderSlots();
 }
@@ -284,6 +304,7 @@ async function loadPriority(force) {
   } catch (e) {
     return;
   }
+  priorityCache[dateAtRequest] = fetched;
   if (dateAtRequest !== selectedDate) return; // 使用者在等待回應時已經切換日期，這筆資料過期了，丟掉
   priorityQueue = fetched;
   renderPriority();
