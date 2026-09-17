@@ -187,6 +187,26 @@
     </div>
   </div>
 
+  <div class="card" id="fixedEventFormCard">
+    <h2 class="section">既定行程</h2>
+    <p class="hint" style="margin-top:-4px;">晨會、外部會議這種老闆本來就要去的行程，加在這裡會自動佔掉那段時間，同事就不會登記到衝突的時段。</p>
+    <div class="addform" style="align-items:flex-end;">
+      <div class="field">
+        <label>開始時間</label>
+        <input type="time" id="fixedStart" value="09:00">
+      </div>
+      <div class="field">
+        <label>結束時間</label>
+        <input type="time" id="fixedEnd" value="09:30">
+      </div>
+      <div class="field" style="flex:1; min-width:140px;">
+        <label>行程名稱</label>
+        <input type="text" id="fixedTitle" placeholder="例如：晨會、外部會議" style="width:100%;">
+      </div>
+      <button class="action" id="addFixedEventBtn">新增既定行程</button>
+    </div>
+  </div>
+
   <div class="card" id="priorityCard" style="display:none;">
     <h2 class="section">優先登記名單（延續討論）</h2>
     <p class="hint" style="margin-top:-4px;">這些人是從前一天延續下來的，安排時段時建議優先處理。</p>
@@ -211,9 +231,14 @@ const $ = (id) => document.getElementById(id);
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwRNRL4RyWb2h_R-k_brrroguPY8VoxKnsw82tRPofq7w4D8ZX1obxWvaUavIDGvdz5AQ/exec';
 let selectedDate = todayStr();
 let slots = [];
+let lastSlotsSnapshot = null;
+let lastPrioritySnapshot = null;
+let lastFixedSnapshot = null;
 let priorityQueue = [];
+let fixedEvents = [];
 const boardCache = {};
 const priorityCache = {};
+const fixedCache = {};
 let pendingPriorityFill = null;
 
 function todayStr(offset = 0) {
@@ -260,21 +285,29 @@ function switchToDate(ds) {
   selectedDate = ds;
   buildDateBar();
 
-  if (boardCache[ds]) {
-    slots = boardCache[ds];
+  if (boardCache[ds] || fixedCache[ds]) {
+    slots = boardCache[ds] || [];
+    fixedEvents = fixedCache[ds] || [];
+    lastSlotsSnapshot = JSON.stringify(slots);
+    lastFixedSnapshot = JSON.stringify(fixedEvents);
     renderSlots();
   } else {
+    lastSlotsSnapshot = null;
+    lastFixedSnapshot = null;
     $('openSlotList').innerHTML = skeletonHtml(2);
     $('bookedList').innerHTML = skeletonHtml(3);
   }
   if (priorityCache[ds]) {
     priorityQueue = priorityCache[ds];
+    lastPrioritySnapshot = JSON.stringify(priorityQueue);
     renderPriority();
   } else {
+    lastPrioritySnapshot = null;
     $('priorityCard').style.display = 'none';
   }
 
   loadSlots(true);
+  loadFixedEvents(true);
   loadPriority(true);
 }
 
@@ -334,6 +367,9 @@ async function loadSlots(force) {
   }
   boardCache[dateAtRequest] = fetched;
   if (dateAtRequest !== selectedDate) return; // 使用者在等待回應時已經切換日期，這筆資料過期了，只更新快取，畫面不動
+  const snapshot = JSON.stringify(fetched);
+  if (snapshot === lastSlotsSnapshot) return; // 資料跟畫面上顯示的一樣，不用重畫，避免閃爍
+  lastSlotsSnapshot = snapshot;
   slots = fetched;
   renderSlots();
 }
@@ -352,8 +388,47 @@ async function loadPriority(force) {
   }
   priorityCache[dateAtRequest] = fetched;
   if (dateAtRequest !== selectedDate) return; // 使用者在等待回應時已經切換日期，這筆資料過期了，丟掉
+  const snapshot = JSON.stringify(fetched);
+  if (snapshot === lastPrioritySnapshot) return;
+  lastPrioritySnapshot = snapshot;
   priorityQueue = fetched;
   renderPriority();
+}
+
+async function loadFixedEvents(force) {
+  if (!force && (modalOpen || saveInFlight > 0)) return;
+  const dateAtRequest = selectedDate;
+  let fetched;
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent('fixed:' + dateAtRequest)}`);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    fetched = data && data.value ? JSON.parse(data.value) : [];
+  } catch (e) {
+    return;
+  }
+  fixedCache[dateAtRequest] = fetched;
+  if (dateAtRequest !== selectedDate) return;
+  const snapshot = JSON.stringify(fetched);
+  if (snapshot === lastFixedSnapshot) return;
+  lastFixedSnapshot = snapshot;
+  fixedEvents = fetched;
+  renderSlots();
+}
+
+async function saveFixedEvents() {
+  saveInFlight++;
+  try {
+    const key = 'fixed:' + selectedDate;
+    const value = JSON.stringify(fixedEvents);
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`);
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error('save failed');
+  } catch (e) {
+    showToast('儲存失敗，請重試');
+  } finally {
+    saveInFlight--;
+  }
 }
 
 async function savePriorityQueueForDate(dateStr, list) {
@@ -431,14 +506,22 @@ function toTimeStr(mins) {
 }
 
 function freeWindows(block) {
-  const bookings = (block.bookings || []).slice().sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-  const windows = [];
-  let cursor = toMinutes(block.start);
+  const blockStart = toMinutes(block.start);
   const blockEnd = toMinutes(block.end);
-  bookings.forEach(b => {
-    const bs = toMinutes(b.start);
-    if (bs > cursor) windows.push([cursor, bs]);
-    cursor = Math.max(cursor, toMinutes(b.end));
+  const busy = (block.bookings || []).map(b => ({ start: toMinutes(b.start), end: toMinutes(b.end) }))
+    .concat(
+      (fixedEvents || [])
+        .map(f => ({ start: toMinutes(f.start), end: toMinutes(f.end) }))
+        .filter(f => f.start < blockEnd && f.end > blockStart)
+        .map(f => ({ start: Math.max(f.start, blockStart), end: Math.min(f.end, blockEnd) }))
+    )
+    .sort((a, b) => a.start - b.start);
+
+  const windows = [];
+  let cursor = blockStart;
+  busy.forEach(b => {
+    if (b.start > cursor) windows.push([cursor, b.start]);
+    cursor = Math.max(cursor, b.end);
   });
   if (cursor < blockEnd) windows.push([cursor, blockEnd]);
   return windows;
@@ -456,82 +539,101 @@ function getStartOptions(block, duration) {
 }
 
 function renderSlots() {
+  lastSlotsSnapshot = JSON.stringify(slots);
   const openList = $('openSlotList');
   const bookedList = $('bookedList');
 
+  // ===== 可預約時段區塊 =====
   if (!slots.length) {
     openList.innerHTML = '<div class="empty">目前沒有開放的時段，先用上面的表單開放一個吧。</div>';
+  } else {
+    const sortedBlocks = [...slots].sort((a, b) => a.start.localeCompare(b.start));
+    openList.innerHTML = '';
+    sortedBlocks.forEach(block => {
+      const hasRoom = getStartOptions(block, 15).length > 0;
+      const row = document.createElement('div');
+      row.className = 'slot fade-in';
+      row.innerHTML = `
+        <div class="time">${block.start}–${block.end}</div>
+        <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
+        ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
+        ${isAdmin ? `<button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>` : ''}
+      `;
+      openList.appendChild(row);
+    });
+    openList.querySelectorAll('button[data-act]').forEach(btn => {
+      btn.onclick = () => handleAction(btn.dataset.id, btn.dataset.act, btn);
+    });
+  }
+
+  // ===== 已登記名單（依時序，含既定行程） =====
+  const timeline = [];
+  slots.forEach(block => {
+    (block.bookings || []).forEach(bk => {
+      timeline.push({ ...bk, blockId: block.id, _type: 'booking' });
+    });
+  });
+  (fixedEvents || []).forEach(f => {
+    timeline.push({ ...f, _type: 'fixed' });
+  });
+  timeline.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+
+  if (!timeline.length) {
     bookedList.innerHTML = '<div class="empty">目前還沒有人登記。</div>';
     return;
   }
 
-  // ===== 可預約時段區塊 =====
-  const sortedBlocks = [...slots].sort((a, b) => a.start.localeCompare(b.start));
-  openList.innerHTML = '';
-  sortedBlocks.forEach(block => {
-    const hasRoom = getStartOptions(block, 15).length > 0;
+  bookedList.innerHTML = '';
+  let bookingCounter = 0;
+  timeline.forEach(item => {
     const row = document.createElement('div');
-    row.className = 'slot fade-in';
-    row.innerHTML = `
-      <div class="time">${block.start}–${block.end}</div>
-      <div class="meta"><span class="status-open">${hasRoom ? '開放中 <span class=\"tag tag-open\">可登記</span>' : '已額滿'}</span></div>
-      ${hasRoom ? `<button class="action" data-id="${block.id}" data-act="book">登記</button>` : ''}
-      ${isAdmin ? `<button class="action danger" data-id="${block.id}" data-act="remove">刪除整段</button>` : ''}
-    `;
-    openList.appendChild(row);
-  });
-  openList.querySelectorAll('button[data-act]').forEach(btn => {
-    btn.onclick = () => handleAction(btn.dataset.id, btn.dataset.act, btn);
-  });
-
-  // ===== 已登記名單（依時序） =====
-  const allBookings = [];
-  slots.forEach(block => {
-    (block.bookings || []).forEach(bk => {
-      allBookings.push({ ...bk, blockId: block.id });
-    });
-  });
-  allBookings.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-
-  if (!allBookings.length) {
-    bookedList.innerHTML = '<div class="empty">目前還沒有人登記。</div>';
-  } else {
-    bookedList.innerHTML = '';
-    allBookings.forEach((bk, idx) => {
-      const urgencyLabel = bk.urgency === 'red' ? '緊急' : '普通';
-      const carriedTag = bk.carriedOver ? '<span class="tag" style="background:#EAEAE7;color:#5C665F;">已延至隔天</span>' : '';
-      const row = document.createElement('div');
+    if (item._type === 'fixed') {
+      row.className = 'slot fade-in';
+      row.style.cssText = 'background:#2B3A55; color:#fff; border-radius:8px; padding:10px 12px; margin-top:10px; border-top:none;';
+      row.innerHTML = `
+        <div class="time" style="color:#fff;">${item.start}–${item.end}</div>
+        <div class="meta"><div class="name" style="color:#fff;">${escapeHtml(item.title)}</div></div>
+        ${isAdmin ? `<button class="action secondary" data-id="${item.id}" data-act="deleteFixed" style="background:#fff;color:#2B3A55;border-color:#fff;">刪除</button>` : ''}
+      `;
+    } else {
+      bookingCounter++;
+      const urgencyLabel = item.urgency === 'red' ? '緊急' : '普通';
+      const carriedTag = item.carriedOver ? '<span class="tag" style="background:#EAEAE7;color:#5C665F;">已延至隔天</span>' : '';
       row.className = 'slot fade-in';
       row.innerHTML = `
         <div class="time" style="display:flex; align-items:center; gap:6px;">
-          <span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:#F28500; color:#fff; font-size:12px; font-weight:700; flex-shrink:0;">${idx + 1}</span>
-          <span>${bk.start}–${bk.end}</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:#F28500; color:#fff; font-size:12px; font-weight:700; flex-shrink:0;">${bookingCounter}</span>
+          <span>${item.start}–${item.end}</span>
         </div>
         <div class="meta">
-          <div class="name">${escapeHtml(bk.name)} <span class="tag tag-${bk.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span> ${carriedTag}</div>
-          <div class="topic">${escapeHtml(bk.topic || '（未填主題）')}</div>
+          <div class="name">${escapeHtml(item.name)} <span class="tag tag-${item.urgency === 'red' ? 'red' : 'yellow'}">${urgencyLabel}</span> ${carriedTag}</div>
+          <div class="topic">${escapeHtml(item.topic || '（未填主題）')}</div>
         </div>
         <div style="display:flex; gap:6px;">
-          <button class="action secondary" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="edit">編輯</button>
-          ${!bk.carriedOver ? `<button class="action secondary" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="carryOver">延到隔天</button>` : ''}
-          <button class="action danger" data-blockid="${bk.blockId}" data-bookingid="${bk.id}" data-act="cancelBooking">取消</button>
+          <button class="action secondary" data-blockid="${item.blockId}" data-bookingid="${item.id}" data-act="edit">編輯</button>
+          ${!item.carriedOver ? `<button class="action secondary" data-blockid="${item.blockId}" data-bookingid="${item.id}" data-act="carryOver">延到隔天</button>` : ''}
+          <button class="action danger" data-blockid="${item.blockId}" data-bookingid="${item.id}" data-act="cancelBooking">取消</button>
         </div>
       `;
-      bookedList.appendChild(row);
-    });
-    bookedList.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
-      btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
-    });
-    bookedList.querySelectorAll('button[data-act="carryOver"]').forEach(btn => {
-      btn.onclick = () => carryOverBooking(btn.dataset.blockid, btn.dataset.bookingid);
-    });
-    bookedList.querySelectorAll('button[data-act="edit"]').forEach(btn => {
-      btn.onclick = () => openEditForm(btn.dataset.blockid, btn.dataset.bookingid, btn);
-    });
-  }
+    }
+    bookedList.appendChild(row);
+  });
+  bookedList.querySelectorAll('button[data-act="cancelBooking"]').forEach(btn => {
+    btn.onclick = () => cancelBooking(btn.dataset.blockid, btn.dataset.bookingid);
+  });
+  bookedList.querySelectorAll('button[data-act="carryOver"]').forEach(btn => {
+    btn.onclick = () => carryOverBooking(btn.dataset.blockid, btn.dataset.bookingid);
+  });
+  bookedList.querySelectorAll('button[data-act="edit"]').forEach(btn => {
+    btn.onclick = () => openEditForm(btn.dataset.blockid, btn.dataset.bookingid, btn);
+  });
+  bookedList.querySelectorAll('button[data-act="deleteFixed"]').forEach(btn => {
+    btn.onclick = () => deleteFixedEvent(btn.dataset.id);
+  });
 }
 
 function renderPriority() {
+  lastPrioritySnapshot = JSON.stringify(priorityQueue);
   const card = $('priorityCard');
   const list = $('priorityList');
   if (!priorityQueue.length) {
@@ -744,6 +846,29 @@ function addSlotFromInputs(startId, endId) {
 $('addSlotAMBtn').onclick = () => addSlotFromInputs('startTimeAM', 'endTimeAM');
 $('addSlotPMBtn').onclick = () => addSlotFromInputs('startTimePM', 'endTimePM');
 
+function addFixedEvent() {
+  const start = $('fixedStart').value;
+  const end = $('fixedEnd').value;
+  const title = $('fixedTitle').value.trim();
+  if (!start || !end || start >= end) { showToast('請確認開始與結束時間'); return; }
+  if (!title) { showToast('請填寫行程名稱'); return; }
+  fixedEvents.push({
+    id: 'f' + Date.now() + Math.random().toString(36).slice(2, 6),
+    start, end, title
+  });
+  $('fixedTitle').value = '';
+  renderSlots();
+  saveFixedEvents();
+}
+
+function deleteFixedEvent(id) {
+  fixedEvents = fixedEvents.filter(f => f.id !== id);
+  renderSlots();
+  saveFixedEvents();
+}
+
+$('addFixedEventBtn').onclick = addFixedEvent;
+
 // ===== Google 登入（限制公司網域） =====
 // 設定步驟：
 // 1. 到 https://console.cloud.google.com/ 建一個專案（或用現有的）
@@ -768,6 +893,7 @@ let isAdmin = false;
 function applyRolePermissions(email) {
   isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes((email || '').toLowerCase());
   $('openSlotFormCard').style.display = isAdmin ? 'block' : 'none';
+  $('fixedEventFormCard').style.display = isAdmin ? 'block' : 'none';
 }
 
 function decodeJwt(token) {
@@ -864,10 +990,12 @@ window.onload = () => {
 function initApp() {
   buildDateBar();
   loadSlots(true);
+  loadFixedEvents(true);
   loadPriority(true);
   if (!window._pollingStarted) {
     window._pollingStarted = true;
     setInterval(loadSlots, 8000);
+    setInterval(loadFixedEvents, 8000);
     setInterval(loadPriority, 8000);
   }
 }
