@@ -160,7 +160,7 @@
 
   <div class="card" id="openSlotFormCard">
     <h2 class="section">開放新時段</h2>
-    <p class="hint" style="margin-top:-4px;">行政或老闆本人都可以開放時段；老闆隨時可以自己新增或調整。</p>
+    <p class="hint" style="margin-top:-4px;">老闆每日開放之時段，隨時可新增與調整。</p>
     <div class="addform" style="margin-bottom:10px;">
       <span style="font-size:13px; font-weight:700; color:#F28500; min-width:36px;">上午</span>
       <div class="field">
@@ -189,7 +189,7 @@
 
   <div class="card" id="fixedEventFormCard">
     <h2 class="section">既定行程</h2>
-    <p class="hint" style="margin-top:-4px;">晨會、外部會議這種老闆本來就要去的行程，加在這裡會自動佔掉那段時間，同事就不會登記到衝突的時段。</p>
+    <p class="hint" style="margin-top:-4px;">老闆每日既定行程，加在這裡會自動佔掉那段時間，同事們就不會登記到衝突的時段。</p>
     <div class="addform" style="align-items:flex-end;">
       <div class="field">
         <label>開始時間</label>
@@ -589,14 +589,13 @@ function renderSlots() {
     const row = document.createElement('div');
     if (item._type === 'fixed') {
       row.className = 'slot fade-in';
-      row.style.cssText = 'background:#FACE99; color:#794300; border-radius:8px; padding:10px 12px; margin-top:10px; border-top:none;';
       row.innerHTML = `
-        <div class="time" style="display:flex; align-items:center; gap:6px; color:#794300; width:120px; flex-shrink:0; box-sizing:border-box;">
-          <span style="display:inline-flex; width:22px; height:22px; flex-shrink:0; visibility:hidden;"></span>
+        <div class="time" style="display:flex; align-items:center; gap:6px; width:120px; flex-shrink:0; box-sizing:border-box;">
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:#978166; color:#fff; font-size:12px; flex-shrink:0;">✦</span>
           <span>${item.start}–${item.end}</span>
         </div>
-        <div class="meta"><div class="name" style="color:#794300;">${escapeHtml(item.title)}</div></div>
-        ${isAdmin ? `<button class="action secondary" data-id="${item.id}" data-act="deleteFixed" style="background:#fff;color:#794300;border-color:#fff;">刪除</button>` : ''}
+        <div class="meta"><div class="name">${escapeHtml(item.title)}</div></div>
+        ${isAdmin ? `<button class="action danger" data-id="${item.id}" data-act="deleteFixed">刪除</button>` : ''}
       `;
     } else {
       bookingCounter++;
