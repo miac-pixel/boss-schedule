@@ -589,11 +589,14 @@ function renderSlots() {
     const row = document.createElement('div');
     if (item._type === 'fixed') {
       row.className = 'slot fade-in';
-      row.style.cssText = 'background:#978166; color:#fff; border-radius:8px; padding:10px 12px; margin-top:10px; border-top:none;';
+      row.style.cssText = 'background:#F6AA4D; color:#794300; border-radius:8px; padding:10px 12px; margin-top:10px; border-top:none;';
       row.innerHTML = `
-        <div class="time" style="color:#fff;">${item.start}–${item.end}</div>
-        <div class="meta"><div class="name" style="color:#fff;">${escapeHtml(item.title)}</div></div>
-        ${isAdmin ? `<button class="action secondary" data-id="${item.id}" data-act="deleteFixed" style="background:#fff;color:#978166;border-color:#fff;">刪除</button>` : ''}
+        <div class="time" style="display:flex; align-items:center; gap:6px; color:#794300;">
+          <span style="display:inline-flex; width:22px; height:22px; flex-shrink:0; visibility:hidden;"></span>
+          <span>${item.start}–${item.end}</span>
+        </div>
+        <div class="meta"><div class="name" style="color:#794300;">${escapeHtml(item.title)}</div></div>
+        ${isAdmin ? `<button class="action secondary" data-id="${item.id}" data-act="deleteFixed" style="background:#fff;color:#794300;border-color:#fff;">刪除</button>` : ''}
       `;
     } else {
       bookingCounter++;
