@@ -601,9 +601,11 @@ function entryRowHtml(e, n, over) {
   if (e.priority) tags += `<span class="tag tag-prio">優先・延續自 ${fmtShort(e.carriedFrom)}</span>`;
   if (over) tags += '<span class="tag tag-red">額度外・候補</span>';
   if (e.carried) tags += '<span class="tag tag-grey">已延至隔天</span>';
+  if (e.done) tags += '<span class="tag tag-open">✓ 已討論完</span>';
 
   let btns = '';
   if (canManage(e)) {
+    btns += `<button class="action secondary" data-act="done" data-id="${e.id}">${e.done ? '取消已討論' : '已討論完'}</button>`;
     btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
     if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
     btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
@@ -725,7 +727,7 @@ function renderTimeline(ready) {
         <div class="slot fade-in">
           <span class="num-badge">${n}</span>
           <div class="meta">
-            <div class="name">${escapeHtml(e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span> <span class="tag tag-grey">${e.duration} 分鐘</span></div>
+            <div class="name">${escapeHtml(e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span> <span class="tag tag-grey">${e.duration} 分鐘</span>${e.done ? ' <span class="tag tag-open">✓ 已討論完</span>' : ''}</div>
             ${topicText(e) ? `<div class="topic">${escapeHtml(topicText(e))}</div>` : ''}
           </div>
           ${mv}
@@ -742,6 +744,7 @@ $('queueList').addEventListener('click', (ev) => {
   const act = btn.dataset.act;
   if (act === 'book') openBookForm(btn.dataset.period, btn);
   else if (act === 'edit') openEditForm(btn.dataset.id, btn);
+  else if (act === 'done') toggleDone(btn.dataset.id);
   else if (act === 'carry') carryOverEntry(btn.dataset.id, btn);
   else if (act === 'cancel') cancelEntry(btn.dataset.id);
 });
@@ -861,6 +864,16 @@ function openEditForm(id, btn) {
     showToast('已更新');
     saveDay();
   };
+}
+
+function toggleDone(id) {
+  if (!ensureReady()) return;
+  const e = day.entries.find(x => x.id === id);
+  if (!e) return;
+  if (!canManage(e)) { showToast('只能標記自己的登記'); return; }
+  if (e.done) delete e.done; else e.done = true;
+  renderAll();
+  saveDay();
 }
 
 function cancelEntry(id) {
