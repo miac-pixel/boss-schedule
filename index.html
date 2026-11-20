@@ -78,6 +78,8 @@
   .tag-open { background: #E4EEE6; color: #1F5133; margin-left: 0; }
   .tag-yellow { background: #FCEFC7; color: #7A5B06; }
   .tag-red { background: #F9DCD6; color: #8A2A16; }
+  .done-row { opacity: 0.6; }
+  .done-row .name .nm { text-decoration: line-through; }
   .tag-grey { background: #EAEAE7; color: #5C665F; }
   .tag-prio { background: #FFE3C2; color: #8A4B00; }
 
@@ -596,8 +598,7 @@ function topicText(e) {
 }
 
 function entryRowHtml(e, n, over) {
-  const red = e.urgency === 'red';
-  let tags = `<span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span>`;
+  let tags = '';
   if (e.priority) tags += `<span class="tag tag-prio">優先・延續自 ${fmtShort(e.carriedFrom)}</span>`;
   if (over) tags += '<span class="tag tag-red">額度外・候補</span>';
   if (e.carried) tags += '<span class="tag tag-grey">已延至隔天</span>';
@@ -607,16 +608,18 @@ function entryRowHtml(e, n, over) {
   if (canManage(e)) {
     btns += `<button class="action secondary" data-act="done" data-id="${e.id}">${e.done ? '取消已討論' : '已討論完'}</button>`;
     btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
-    if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
+    btns += e.carried
+      ? `<button class="action secondary" data-act="uncarry" data-id="${e.id}">取消延期</button>`
+      : `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
     btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
   }
   const tx = topicText(e);
 
   return `
-    <div class="slot q-row fade-in">
+    <div class="slot q-row fade-in${e.done ? ' done-row' : ''}">
       <span class="num-badge">${n}</span>
       <div class="meta">
-        <div class="name">${escapeHtml(e.name)} ${tags}</div>
+        <div class="name"><span class="nm">${escapeHtml(e.name)}</span> ${tags}</div>
         <div class="topic">${tx ? escapeHtml(tx) + '・' : ''}${e.duration} 分鐘</div>
       </div>
       <div class="btns">${btns}</div>
@@ -717,17 +720,16 @@ function renderTimeline(ready) {
     });
     entries.forEach((e, i) => {
       n++;
-      const red = e.urgency === 'red';
       const mv = isAdmin ? `
         <div class="btns" style="display:flex; gap:6px; flex-shrink:0;">
           <button class="action secondary" data-act="up" data-id="${e.id}" ${i === 0 ? 'disabled' : ''} style="padding:7px 10px;">↑</button>
           <button class="action secondary" data-act="down" data-id="${e.id}" ${i === entries.length - 1 ? 'disabled' : ''} style="padding:7px 10px;">↓</button>
         </div>` : '';
       html += `
-        <div class="slot fade-in">
+        <div class="slot fade-in${e.done ? ' done-row' : ''}">
           <span class="num-badge">${n}</span>
           <div class="meta">
-            <div class="name">${escapeHtml(e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span> <span class="tag tag-grey">${e.duration} 分鐘</span>${e.done ? ' <span class="tag tag-open">✓ 已討論完</span>' : ''}</div>
+            <div class="name"><span class="nm">${escapeHtml(e.name)}</span> <span class="tag tag-grey">${e.duration} 分鐘</span>${e.done ? ' <span class="tag tag-open">✓ 已討論完</span>' : ''}</div>
             ${topicText(e) ? `<div class="topic">${escapeHtml(topicText(e))}</div>` : ''}
           </div>
           ${mv}
@@ -746,6 +748,7 @@ $('queueList').addEventListener('click', (ev) => {
   else if (act === 'edit') openEditForm(btn.dataset.id, btn);
   else if (act === 'done') toggleDone(btn.dataset.id);
   else if (act === 'carry') carryOverEntry(btn.dataset.id, btn);
+  else if (act === 'uncarry') uncarryEntry(btn.dataset.id, btn);
   else if (act === 'cancel') cancelEntry(btn.dataset.id);
 });
 
@@ -776,10 +779,6 @@ function openBookForm(key, btn) {
         ${opts.map(d => `<option value="${d}" ${d === defDur ? 'selected' : ''}>${d}分鐘</option>`).join('')}
       </select>
       <input type="text" id="qName" placeholder="你的名字" value="${escapeHtml(window.currentUserName || '')}" style="flex:1; min-width:100px;">
-      <select id="qUrgency" style="width:80px;">
-        <option value="yellow">普通</option>
-        <option value="red">緊急</option>
-      </select>
     </div>
     <div class="modal-row">
       <input type="text" id="qTopic" placeholder="想討論的主題（一句話即可）" style="flex:1;">
@@ -796,12 +795,10 @@ function openBookForm(key, btn) {
     const name = $('qName').value.trim();
     const topic = $('qTopic').value.trim();
     const duration = Number($('qDuration').value);
-    const urgency = $('qUrgency').value;
     if (!name) { showToast('請先填寫名字'); return; }
     if (duration > remainingOf(key)) { showToast('額度不夠了，請選短一點的時間'); return; }
     const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now(), owner: (window.currentUserEmail || '').toLowerCase() };
     if (topic) entry.topic = topic;
-    if (urgency === 'red') entry.urgency = 'red';
     placeEntry(day, entry, false);
     const pos = queueOf(key).findIndex(e => e.id === entry.id) + 1;
     renderAll();
@@ -827,10 +824,6 @@ function openEditForm(id, btn) {
         ${durs.map(d => `<option value="${d}" ${d === e.duration ? 'selected' : ''}>${d}分鐘</option>`).join('')}
       </select>
       <input type="text" id="editName" value="${escapeHtml(e.name)}" placeholder="名字" style="flex:1; min-width:100px;">
-      <select id="editUrgency" style="width:80px;">
-        <option value="yellow" ${e.urgency !== 'red' ? 'selected' : ''}>普通</option>
-        <option value="red" ${e.urgency === 'red' ? 'selected' : ''}>緊急</option>
-      </select>
     </div>
     <div class="modal-row">
       <input type="text" id="editTopic" value="${escapeHtml(e.topic || '')}" placeholder="想討論的主題" style="flex:1;">
@@ -847,7 +840,6 @@ function openEditForm(id, btn) {
     const name = $('editName').value.trim();
     const topic = $('editTopic').value.trim();
     const duration = Number($('editDuration').value);
-    const urgency = $('editUrgency').value;
     if (!name) { showToast('請填寫名字'); return; }
     if (duration !== e.duration) {
       const allowed = remainingOf(e.period) + e.duration;
@@ -859,7 +851,6 @@ function openEditForm(id, btn) {
     e.name = name;
     e.duration = duration;
     if (topic) e.topic = topic; else delete e.topic;
-    if (urgency === 'red') e.urgency = 'red'; else delete e.urgency;
     renderAll();
     showToast('已更新');
     saveDay();
@@ -909,7 +900,6 @@ async function carryOverEntry(id, btn) {
 
   const carried = { id: newId('e'), owner: e.owner || '', name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
   if (e.topic) carried.topic = e.topic;
-  if (e.urgency === 'red') carried.urgency = 'red';
   placeEntry(nextDay, carried, true);
 
   const ok = await apiSet('queue:' + nextDs, nextDay);
@@ -922,9 +912,58 @@ async function carryOverEntry(id, btn) {
   if (selectedDate === nextDs) day = nextDay;
 
   e.carried = true;
+  e.carriedTo = nextDs;
+  e.carriedId = carried.id;
   apiSet('queue:' + dsAtStart, dayAtStart).then(saved => { if (!saved) showToast('儲存失敗，請重試'); });
   renderAll();
   showToast(`已加入 ${fmtShort(nextDs)} 的排隊名單（優先）`);
+}
+
+async function uncarryEntry(id, btn) {
+  if (!ensureReady()) return;
+  const dsAtStart = selectedDate;
+  const dayAtStart = day;
+  const e = dayAtStart.entries.find(x => x.id === id);
+  if (!e || !e.carried) return;
+  if (!canManage(e)) { showToast('只能操作自己的登記'); return; }
+  const nextDs = e.carriedTo || nextWorkday(dsAtStart);
+
+  btn.disabled = true;
+  btn.textContent = '處理中…';
+
+  let nextDay;
+  try {
+    nextDay = normalizeDay(await apiGet('queue:' + nextDs));
+  } catch (err) {
+    showToast('取消延期失敗，請稍後再試');
+    if (selectedDate === dsAtStart) renderAll();
+    return;
+  }
+
+  // 找到隔天那份延續過去的登記（舊資料沒有編號，就用資料比對）
+  let idx = e.carriedId ? nextDay.entries.findIndex(x => x.id === e.carriedId) : -1;
+  if (idx < 0) {
+    idx = nextDay.entries.findIndex(x => x.priority && x.carriedFrom === dsAtStart &&
+      (x.owner || '') === (e.owner || '') && x.name === e.name && x.duration === e.duration && (x.topic || '') === (e.topic || ''));
+  }
+  if (idx >= 0) {
+    nextDay.entries.splice(idx, 1);
+    const ok = await apiSet('queue:' + nextDs, nextDay);
+    if (!ok) {
+      showToast('取消延期失敗，請稍後再試');
+      if (selectedDate === dsAtStart) renderAll();
+      return;
+    }
+    dayCache[nextDs] = nextDay;
+    if (selectedDate === nextDs) day = nextDay;
+  }
+
+  delete e.carried;
+  delete e.carriedTo;
+  delete e.carriedId;
+  apiSet('queue:' + dsAtStart, dayAtStart).then(saved => { if (!saved) showToast('儲存失敗，請重試'); });
+  if (selectedDate === dsAtStart) renderAll();
+  showToast(`已取消延期，並從 ${fmtShort(nextDs)} 的名單移除`);
 }
 
 // ===== 既定行程（管理員） =====
