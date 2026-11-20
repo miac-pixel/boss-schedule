@@ -577,6 +577,16 @@ function setQuota(key, val) {
 $('quotaAM').onchange = () => setQuota('am', $('quotaAM').value);
 $('quotaPM').onchange = () => setQuota('pm', $('quotaPM').value);
 
+// 是不是本人的登記（舊資料沒有 owner，一般同事視為別人的）
+function isMine(e) {
+  return !!e.owner && e.owner === (window.currentUserEmail || '').toLowerCase();
+}
+function canManage(e) { return isAdmin || isMine(e); }
+function topicText(e) {
+  if (!canManage(e)) return '';
+  return e.topic || '（未填主題）';
+}
+
 function entryRowHtml(e, n, over) {
   const red = e.urgency === 'red';
   let tags = `<span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span>`;
@@ -585,16 +595,19 @@ function entryRowHtml(e, n, over) {
   if (e.carried) tags += '<span class="tag tag-grey">已延至隔天</span>';
 
   let btns = '';
-  btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
-  if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
-  btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
+  if (canManage(e)) {
+    btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
+    if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
+    btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
+  }
+  const tx = topicText(e);
 
   return `
     <div class="slot q-row fade-in">
       <span class="num-badge">${n}</span>
       <div class="meta">
         <div class="name">${escapeHtml(e.name)} ${tags}</div>
-        <div class="topic">${escapeHtml(e.topic || '（未填主題）')}・${e.duration} 分鐘</div>
+        <div class="topic">${tx ? escapeHtml(tx) + '・' : ''}${e.duration} 分鐘</div>
       </div>
       <div class="btns">${btns}</div>
     </div>`;
@@ -705,7 +718,7 @@ function renderTimeline(ready) {
           <span class="num-badge">${n}</span>
           <div class="meta">
             <div class="name">${escapeHtml(e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span> <span class="tag tag-grey">${e.duration} 分鐘</span></div>
-            <div class="topic">${escapeHtml(e.topic || '（未填主題）')}</div>
+            ${topicText(e) ? `<div class="topic">${escapeHtml(topicText(e))}</div>` : ''}
           </div>
           ${mv}
         </div>`;
@@ -775,7 +788,7 @@ function openBookForm(key, btn) {
     const urgency = $('qUrgency').value;
     if (!name) { showToast('請先填寫名字'); return; }
     if (duration > remainingOf(key)) { showToast('額度不夠了，請選短一點的時間'); return; }
-    const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now() };
+    const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now(), owner: (window.currentUserEmail || '').toLowerCase() };
     if (topic) entry.topic = topic;
     if (urgency === 'red') entry.urgency = 'red';
     placeEntry(day, entry, false);
@@ -790,6 +803,7 @@ function openEditForm(id, btn) {
   if (!ensureReady()) return;
   const e = day.entries.find(x => x.id === id);
   if (!e) return;
+  if (!canManage(e)) { showToast('只能編輯自己的登記'); return; }
   closeForms();
   modalOpen = true;
 
@@ -845,6 +859,7 @@ function cancelEntry(id) {
   if (!ensureReady()) return;
   const i = day.entries.findIndex(x => x.id === id);
   if (i < 0) return;
+  if (!canManage(day.entries[i])) { showToast('只能操作自己的登記'); return; }
   day.entries.splice(i, 1);
   renderAll();
   saveDay();
@@ -856,6 +871,7 @@ async function carryOverEntry(id, btn) {
   const dayAtStart = day;
   const e = dayAtStart.entries.find(x => x.id === id);
   if (!e || e.carried) return;
+  if (!canManage(e)) { showToast('只能操作自己的登記'); return; }
   const nextDs = nextWorkday(dsAtStart);
 
   btn.disabled = true;
@@ -870,7 +886,7 @@ async function carryOverEntry(id, btn) {
     return;
   }
 
-  const carried = { id: newId('e'), name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
+  const carried = { id: newId('e'), owner: e.owner || '', name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
   if (e.topic) carried.topic = e.topic;
   if (e.urgency === 'red') carried.urgency = 'red';
   placeEntry(nextDay, carried, true);
@@ -967,6 +983,7 @@ function handleGoogleLogin(response) {
   $('mainApp').style.display = 'block';
   $('userBadgeText').textContent = `${payload.name || email}（${email}）`;
   window.currentUserName = payload.name || email;
+  window.currentUserEmail = email.toLowerCase();
   applyRolePermissions(email);
   try {
     localStorage.setItem('boardUser', JSON.stringify({
@@ -1003,6 +1020,7 @@ function tryRestoreSession() {
     $('mainApp').style.display = 'block';
     $('userBadgeText').textContent = `${saved.name}（${saved.email}）`;
     window.currentUserName = saved.name;
+    window.currentUserEmail = (saved.email || '').toLowerCase();
     applyRolePermissions(saved.email);
     initApp();
     return true;
