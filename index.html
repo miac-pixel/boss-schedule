@@ -194,7 +194,7 @@
 
   <div class="card" id="openSlotFormCard">
     <h2 class="section">開放討論額度</h2>
-    <p class="hint" style="margin-top:-4px;">老闆每日開放討論之額度，隨時可新增與調整；不用先決定幾點，實際時間之後再安排。</p>
+    <p class="hint" style="margin-top:-4px;">老闆每日開放討論之額度，隨時可新增與調整；不用先決定幾點，之後可在下方調整順序。</p>
     <div class="addform" style="align-items:center; margin-bottom:10px;">
       <span class="period-label">上午</span>
       <select id="quotaAM" class="quota-select"></select>
@@ -207,7 +207,7 @@
 
   <div class="card" id="fixedEventFormCard">
     <h2 class="section">既定行程</h2>
-    <p class="hint" style="margin-top:-4px;">老闆每日既定行程，加在這裡會顯示在行程表中，安排時間時也會自動避開。</p>
+    <p class="hint" style="margin-top:-4px;">老闆每日既定行程，加在這裡會顯示在行程表中。</p>
     <div class="addform" style="align-items:flex-end;">
       <div class="field">
         <label>開始時間</label>
@@ -227,12 +227,12 @@
 
   <div class="card" id="queueCard">
     <h2 class="section">排隊登記</h2>
-    <p class="hint" style="margin-top:-4px;">先搶先贏，登記後由行政或老闆安排實際時間。</p>
+    <p class="hint" style="margin-top:-4px;">先搶先贏，登記後由行政或老闆調整順序。</p>
     <div id="queueList"></div>
   </div>
 
   <div class="card" id="timelineCard">
-    <h2 class="section">已安排行程（依時間排序）</h2>
+    <h2 class="section">已安排行程（依上午／下午順序）</h2>
     <div id="timelineList"></div>
   </div>
 </div>
@@ -496,32 +496,38 @@ function remainingOf(key) {
   return q.minutes - usedOf(key);
 }
 
-// 排隊順序：延續自前一天的優先，其餘依登記先後
+// 排隊順序：被行政調整過的（rank）依 rank；其餘延續自前一天的優先，再依登記先後
 function queueOf(key) {
   return day.entries
     .filter(e => e.period === key)
-    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0));
+    .sort((a, b) => {
+      const ra = typeof a.rank === 'number', rb = typeof b.rank === 'number';
+      if (ra && rb) return a.rank - b.rank;
+      if (ra !== rb) return ra ? -1 : 1;
+      return (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0);
+    });
 }
 
-function findConflict(startMin, endMin, excludeId) {
-  for (const f of fixedEvents) {
-    if (startMin < toMinutes(f.end) && endMin > toMinutes(f.start)) return f.title;
-  }
-  for (const e of day.entries) {
-    if (e.id === excludeId || !e.scheduledStart) continue;
-    const s = toMinutes(e.scheduledStart);
-    const en = s + (e.duration || 0);
-    if (startMin < en && endMin > s) return e.name;
-  }
-  return null;
+// 新登記排到最後；延續的優先名單排到最前面
+function placeEntry(d, entry, front) {
+  const ranks = d.entries.filter(e => e.period === entry.period && typeof e.rank === 'number').map(e => e.rank);
+  if (ranks.length) entry.rank = front ? Math.min(...ranks) - 1 : Math.max(...ranks) + 1;
+  d.entries.push(entry);
 }
 
-function suggestStart(e) {
-  const p = PERIODS.find(x => x.key === e.period) || PERIODS[0];
-  for (let m = toMinutes(p.defaultStart); m + e.duration <= 20 * 60; m += 15) {
-    if (!findConflict(m, m + e.duration, e.id)) return toTimeStr(m);
-  }
-  return p.defaultStart;
+function moveEntry(id, dir) {
+  if (!ensureReady()) return;
+  const e = day.entries.find(x => x.id === id);
+  if (!e) return;
+  const all = queueOf(e.period);
+  const list = all.filter(x => !x.carried);
+  const i = list.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  list.concat(all.filter(x => x.carried)).forEach((x, k) => { x.rank = k; });
+  renderAll();
+  saveDay();
 }
 
 // ===== 畫面 =====
@@ -578,12 +584,7 @@ function entryRowHtml(e, n, over) {
   if (over) tags += '<span class="tag tag-red">額度外・候補</span>';
   if (e.carried) tags += '<span class="tag tag-grey">已延至隔天</span>';
 
-  const when = e.scheduledStart
-    ? `<span class="chip chip-time">${e.scheduledStart}–${toTimeStr(toMinutes(e.scheduledStart) + e.duration)}</span>`
-    : '<span class="chip chip-wait">待安排</span>';
-
   let btns = '';
-  if (isAdmin) btns += `<button class="action" data-act="arrange" data-id="${e.id}">${e.scheduledStart ? '改時間' : '安排時間'}</button>`;
   btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
   if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
   btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
@@ -594,7 +595,6 @@ function entryRowHtml(e, n, over) {
       <div class="meta">
         <div class="name">${escapeHtml(e.name)} ${tags}</div>
         <div class="topic">${escapeHtml(e.topic || '（未填主題）')}・${e.duration} 分鐘</div>
-        <div>${when}</div>
       </div>
       <div class="btns">${btns}</div>
     </div>`;
@@ -672,48 +672,46 @@ function renderTimeline(ready) {
   const list = $('timelineList');
   if (!ready) { list.innerHTML = skeletonHtml(2); return; }
 
-  const items = [];
-  fixedEvents.forEach(f => items.push({ type: 'fixed', start: f.start, end: f.end, f }));
-  day.entries.forEach(e => {
-    if (e.scheduledStart) {
-      items.push({ type: 'entry', start: e.scheduledStart, end: toTimeStr(toMinutes(e.scheduledStart) + e.duration), e });
-    }
-  });
-  items.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-
-  if (!items.length) {
-    list.innerHTML = '<div class="empty">目前還沒有安排行程。</div>';
-    return;
-  }
-
+  const hasFixed = (key) => fixedEvents.some(f => (toMinutes(f.start) < 12 * 60) === (key === 'am'));
   let html = '';
-  items.forEach(it => {
-    if (it.type === 'fixed') {
+  let n = 0;
+  PERIODS.forEach(p => {
+    const entries = queueOf(p.key).filter(e => !e.carried);
+    const fixeds = fixedEvents
+      .filter(f => (toMinutes(f.start) < 12 * 60) === (p.key === 'am'))
+      .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+    if (!entries.length && !fixeds.length) return;
+    html += `<div class="period-sub" style="margin:${html ? '14px' : '0'} 0 8px; font-weight:700;">${p.label}</div>`;
+    fixeds.forEach(f => {
       html += `
         <div class="slot fade-in">
-          <div class="time" style="display:flex; align-items:center; gap:6px; width:124px; flex-shrink:0; white-space:nowrap;">
-            <span class="num-badge fixed">✦</span>
-            <span>${it.start}–${it.end}</span>
-          </div>
-          <div class="meta"><div class="name">${escapeHtml(it.f.title)}</div></div>
-          ${isAdmin ? `<button class="action danger" data-act="deleteFixed" data-id="${it.f.id}">刪除</button>` : ''}
-        </div>`;
-    } else {
-      const red = it.e.urgency === 'red';
-      html += `
-        <div class="slot fade-in">
-          <div class="time" style="display:flex; align-items:center; gap:6px; width:124px; flex-shrink:0; white-space:nowrap;">
-            <span class="num-badge">✓</span>
-            <span>${it.start}–${it.end}</span>
-          </div>
+          <span class="num-badge fixed">✦</span>
           <div class="meta">
-            <div class="name">${escapeHtml(it.e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span></div>
-            <div class="topic">${escapeHtml(it.e.topic || '（未填主題）')}</div>
+            <div class="name">${escapeHtml(f.title)} <span class="tag tag-grey">${f.start}–${f.end}</span></div>
           </div>
+          ${isAdmin ? `<button class="action danger" data-act="deleteFixed" data-id="${f.id}">刪除</button>` : ''}
         </div>`;
-    }
+    });
+    entries.forEach((e, i) => {
+      n++;
+      const red = e.urgency === 'red';
+      const mv = isAdmin ? `
+        <div class="btns" style="display:flex; gap:6px; flex-shrink:0;">
+          <button class="action secondary" data-act="up" data-id="${e.id}" ${i === 0 ? 'disabled' : ''} style="padding:7px 10px;">↑</button>
+          <button class="action secondary" data-act="down" data-id="${e.id}" ${i === entries.length - 1 ? 'disabled' : ''} style="padding:7px 10px;">↓</button>
+        </div>` : '';
+      html += `
+        <div class="slot fade-in">
+          <span class="num-badge">${n}</span>
+          <div class="meta">
+            <div class="name">${escapeHtml(e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span> <span class="tag tag-grey">${e.duration} 分鐘</span></div>
+            <div class="topic">${escapeHtml(e.topic || '（未填主題）')}</div>
+          </div>
+          ${mv}
+        </div>`;
+    });
   });
-  list.innerHTML = html;
+  list.innerHTML = html || '<div class="empty">目前還沒有安排行程。</div>';
 }
 
 // ===== 操作：登記 / 編輯 / 安排時間 / 取消 / 延到隔天 =====
@@ -722,15 +720,18 @@ $('queueList').addEventListener('click', (ev) => {
   if (!btn || btn.disabled) return;
   const act = btn.dataset.act;
   if (act === 'book') openBookForm(btn.dataset.period, btn);
-  else if (act === 'arrange') openArrangeForm(btn.dataset.id, btn);
   else if (act === 'edit') openEditForm(btn.dataset.id, btn);
   else if (act === 'carry') carryOverEntry(btn.dataset.id, btn);
   else if (act === 'cancel') cancelEntry(btn.dataset.id);
 });
 
 $('timelineList').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('button[data-act="deleteFixed"]');
-  if (btn) deleteFixedEvent(btn.dataset.id);
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn || btn.disabled) return;
+  const act = btn.dataset.act;
+  if (act === 'deleteFixed') deleteFixedEvent(btn.dataset.id);
+  else if (act === 'up') moveEntry(btn.dataset.id, -1);
+  else if (act === 'down') moveEntry(btn.dataset.id, 1);
 });
 
 function openBookForm(key, btn) {
@@ -777,7 +778,7 @@ function openBookForm(key, btn) {
     const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now() };
     if (topic) entry.topic = topic;
     if (urgency === 'red') entry.urgency = 'red';
-    day.entries.push(entry);
+    placeEntry(day, entry, false);
     const pos = queueOf(key).findIndex(e => e.id === entry.id) + 1;
     renderAll();
     showToast(`登記成功，目前排第 ${pos} 位`);
@@ -829,11 +830,6 @@ function openEditForm(id, btn) {
         showToast(`額度不足，最多只能改成 ${allowed} 分鐘`);
         return;
       }
-      if (e.scheduledStart) {
-        const s = toMinutes(e.scheduledStart);
-        const c = findConflict(s, s + duration, e.id);
-        if (c) { showToast(`改成 ${duration} 分鐘會和「${c}」重疊，請先調整安排的時間`); return; }
-      }
     }
     e.name = name;
     e.duration = duration;
@@ -841,75 +837,6 @@ function openEditForm(id, btn) {
     if (urgency === 'red') e.urgency = 'red'; else delete e.urgency;
     renderAll();
     showToast('已更新');
-    saveDay();
-  };
-}
-
-function timeOptionsHtml(selected) {
-  let html = '';
-  let found = false;
-  for (let m = 8 * 60; m <= 20 * 60; m += 15) {
-    const t = toTimeStr(m);
-    if (t === selected) found = true;
-    html += `<option value="${t}" ${t === selected ? 'selected' : ''}>${t}</option>`;
-  }
-  if (selected && !found) html = `<option value="${selected}" selected>${selected}</option>` + html;
-  return html;
-}
-
-function openArrangeForm(id, btn) {
-  if (!ensureReady(true)) return;
-  const e = day.entries.find(x => x.id === id);
-  if (!e) return;
-  closeForms();
-  modalOpen = true;
-
-  const initial = e.scheduledStart || suggestStart(e);
-  const box = document.createElement('div');
-  box.className = 'modal-bg';
-  box.innerHTML = `
-    <div class="modal-row" style="align-items:center;">
-      <span style="font-size:13px; font-weight:700; color:#F28500;">開始時間</span>
-      <select id="arrStart" style="width:100px;">${timeOptionsHtml(initial)}</select>
-      <span id="arrPreview" class="hint" style="margin:0;"></span>
-    </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button class="action" id="arrConfirm">確認安排</button>
-      ${e.scheduledStart ? '<button class="action danger" id="arrClear">取消安排</button>' : ''}
-      <button class="action secondary" id="arrCancel">關閉</button>
-    </div>
-  `;
-  btn.closest('.slot').after(box);
-
-  function refreshPreview() {
-    const s = toMinutes($('arrStart').value);
-    const end = s + e.duration;
-    const c = findConflict(s, end, e.id);
-    const p = $('arrPreview');
-    if (c) { p.textContent = `⚠ 和「${c}」時間重疊`; p.style.color = '#A34B2E'; }
-    else { p.textContent = `${e.duration} 分鐘，${toTimeStr(end)} 結束`; p.style.color = ''; }
-  }
-  $('arrStart').onchange = refreshPreview;
-  refreshPreview();
-
-  $('arrCancel').onclick = closeForms;
-  if ($('arrClear')) {
-    $('arrClear').onclick = () => {
-      delete e.scheduledStart;
-      renderAll();
-      showToast('已取消安排，回到待安排');
-      saveDay();
-    };
-  }
-  $('arrConfirm').onclick = () => {
-    const start = $('arrStart').value;
-    const s = toMinutes(start);
-    const end = s + e.duration;
-    const c = findConflict(s, end, e.id);
-    if (c) { showToast(`和「${c}」的時間重疊，請換一個時間`); return; }
-    e.scheduledStart = start;
-    renderAll();
-    showToast(`已安排 ${start}–${toTimeStr(end)}`);
     saveDay();
   };
 }
@@ -946,7 +873,7 @@ async function carryOverEntry(id, btn) {
   const carried = { id: newId('e'), name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
   if (e.topic) carried.topic = e.topic;
   if (e.urgency === 'red') carried.urgency = 'red';
-  nextDay.entries.push(carried);
+  placeEntry(nextDay, carried, true);
 
   const ok = await apiSet('queue:' + nextDs, nextDay);
   if (!ok) {
@@ -971,15 +898,10 @@ function addFixedEvent() {
   const title = $('fixedTitle').value.trim();
   if (!start || !end || start >= end) { showToast('請確認開始與結束時間'); return; }
   if (!title) { showToast('請填寫行程名稱'); return; }
-  const s = toMinutes(start);
-  const en = toMinutes(end);
-  const clash = day.entries.find(e => e.scheduledStart &&
-    s < toMinutes(e.scheduledStart) + e.duration && en > toMinutes(e.scheduledStart));
   fixedEvents.push({ id: newId('f'), start, end, title });
   $('fixedTitle').value = '';
   renderAll();
   saveFixed();
-  if (clash) showToast(`已新增，但和「${clash.name}」已安排的時間重疊，請調整`);
 }
 
 function deleteFixedEvent(id) {
@@ -1003,7 +925,7 @@ $('addFixedEventBtn').onclick = addFixedEvent;
 const GOOGLE_CLIENT_ID = '760769778758-3um9llcqo5jfsc3klsi6t68v1uc0hvfr.apps.googleusercontent.com';
 const ALLOWED_DOMAINS = ['w-power.com.tw', 'wenergy.com.tw'];
 
-// 「開放討論額度」「既定行程」「安排時間」只開放給下面這些 email（行政、老闆）
+// 「開放討論額度」「既定行程」「調整順序」只開放給下面這些 email（行政、老闆）
 const ADMIN_EMAILS = [
   'rusen.wu@wenergy.com.tw',
   'belinda.yeh@wenergy.com.tw',
