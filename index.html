@@ -406,17 +406,25 @@ async function apiGet(key) {
   return data && data.value ? JSON.parse(data.value) : null;
 }
 
-async function apiSet(key, obj) {
+// 所有寫入排成一條隊伍依序送出，避免兩次操作太快、後送的先到而把新資料蓋回舊的
+let writeChain = Promise.resolve();
+let writeVersion = 0;   // 每次寫入 +1，讀取期間若有寫入就丟掉那次讀到的舊資料
+let lastWriteAt = 0;    // 最近一次寫入完成的時間
+function apiSet(key, obj) {
+  const body = JSON.stringify(obj); // 當下的內容先定下來
   saveInFlight++;
-  try {
-    const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(JSON.stringify(obj))}`);
-    const data = await res.json();
-    return !!(data && data.ok);
-  } catch (e) {
-    return false;
-  } finally {
-    saveInFlight--;
-  }
+  writeVersion++;
+  const run = writeChain.then(async () => {
+    try {
+      const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(body)}`);
+      const data = await res.json();
+      return !!(data && data.ok);
+    } catch (e) {
+      return false;
+    }
+  });
+  writeChain = run.then(() => {});
+  return run.finally(() => { saveInFlight--; lastWriteAt = Date.now(); });
 }
 
 function normalizeDay(raw) {
@@ -430,13 +438,14 @@ function normalizeDay(raw) {
 async function loadDay(force) {
   if (!force && (modalOpen || saveInFlight > 0)) return;
   const ds = selectedDate;
+  const wv = writeVersion;
   let fetched;
   try {
     fetched = normalizeDay(await apiGet('queue:' + ds));
   } catch (e) {
     return; // 抓失敗就保留原本畫面，等下一次自動重試，避免畫面閃動
   }
-  if (!force && (modalOpen || saveInFlight > 0)) return; // 等待期間使用者剛好操作了，這份資料可能是舊的
+  if (!force && (wv !== writeVersion || saveInFlight > 0 || Date.now() - lastWriteAt < 4000 || modalOpen)) return; // 讀取期間或剛寫入完，這份資料可能是舊的
   if (ds !== selectedDate) { dayCache[ds] = fetched; return; }
   const snapshot = JSON.stringify(fetched);
   if (dayCache[ds] && snapshot === lastDaySnapshot) return;
@@ -448,6 +457,7 @@ async function loadDay(force) {
 async function loadFixed(force) {
   if (!force && (modalOpen || saveInFlight > 0)) return;
   const ds = selectedDate;
+  const wv = writeVersion;
   let fetched;
   try {
     const raw = await apiGet('fixed:' + ds);
@@ -455,7 +465,7 @@ async function loadFixed(force) {
   } catch (e) {
     return;
   }
-  if (!force && (modalOpen || saveInFlight > 0)) return;
+  if (!force && (wv !== writeVersion || saveInFlight > 0 || Date.now() - lastWriteAt < 4000 || modalOpen)) return;
   if (ds !== selectedDate) { fixedCache[ds] = fetched; return; }
   const snapshot = JSON.stringify(fetched);
   if (fixedCache[ds] && snapshot === lastFixedSnapshot) return;
