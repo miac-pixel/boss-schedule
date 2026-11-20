@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>老闆時段登記板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%93%85</text></svg>">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+    background: #FDEEDD;
+    color: #1E2422;
+    padding: 24px 16px 80px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+
+  header { margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: 0.2px; }
+  .sub { font-size: 13px; color: #5C665F; margin: 0; }
+
+  .datebar {
+    display: flex; gap: 8px; margin: 18px 0 16px;
+  }
+  .datebtn {
+    flex: 1 1 0; padding: 8px 6px; border-radius: 999px;
+    border: 1px solid #C7CFC5; background: #fff; font-size: 13px;
+    cursor: pointer; color: #445048; white-space: nowrap; text-align: center;
+  }
+  .datebtn.active { background: #F28500; color: #fff; border-color: #F28500; }
+
+  .card {
+    background: #fff; border: 1px solid #DDE3D8; border-radius: 12px;
+    padding: 16px; margin-bottom: 12px;
+  }
+  .empty {
+    text-align: center; color: #8A9289; font-size: 14px; padding: 28px 12px;
+    border: 1px dashed #C7CFC5; border-radius: 12px; background: #FAFBF9;
+  }
+  .empty-mini {
+    text-align: center; color: #8A9289; font-size: 13px; padding: 14px 12px;
+    border: 1px dashed #C7CFC5; border-radius: 10px; background: #FAFBF9;
+  }
+
+  .skeleton-row {
+    height: 52px; border-radius: 10px; margin-bottom: 10px;
+    background: linear-gradient(90deg, #EFEFEA 25%, #F8F8F5 37%, #EFEFEA 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+  .skeleton-row:last-child { margin-bottom: 0; }
+  @keyframes skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fade-in 0.25s ease both; }
+
+  .slot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .slot + .slot { border-top: 1px solid #EEF0EC; margin-top: 10px; padding-top: 10px; }
+  .time { font-size: 15px; font-weight: 700; min-width: 96px; }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 14px; font-weight: 700; }
+  .topic { font-size: 13px; color: #5C665F; margin-top: 2px; word-break: break-word; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+  .tag-open { background: #E4EEE6; color: #1F5133; margin-left: 0; }
+  .tag-yellow { background: #FCEFC7; color: #7A5B06; }
+  .tag-red { background: #F9DCD6; color: #8A2A16; }
+  .tag-grey { background: #EAEAE7; color: #5C665F; }
+  .tag-prio { background: #FFE3C2; color: #8A4B00; }
+
+  .num-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 999px; background: #F28500; color: #fff;
+    font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }
+  .num-badge.fixed { background: #978166; font-weight: 400; }
+
+  .chip { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; margin-top: 4px; }
+  .chip-wait { background: #F1F1EE; color: #6B746E; }
+  .chip-time { background: #E4EEE6; color: #1F5133; font-weight: 700; }
+
+  .q-row { flex-wrap: wrap; }
+  .q-row .meta { flex: 1 1 200px; }
+  .q-row .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+
+  .period-block + .period-block { margin-top: 18px; padding-top: 16px; border-top: 1px dashed #EAD9C2; }
+  .period-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .period-title { font-size: 15px; font-weight: 700; margin-right: 6px; }
+  .period-sub { font-size: 12px; color: #6B746E; margin-top: 6px; }
+  .quota-bar { height: 6px; background: #F3E5D2; border-radius: 999px; overflow: hidden; margin-top: 8px; width: 220px; max-width: 100%; }
+  .quota-fill { height: 100%; background: #F28500; border-radius: 999px; transition: width 0.3s ease; }
+  .quota-fill.full { background: #A34B2E; }
+
+  button.action {
+    border: 1px solid #F28500; background: #F28500; color: #fff;
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  }
+  button.action.secondary {
+    background: #fff; color: #F28500;
+  }
+  button.action.danger {
+    background: #fff; color: #A34B2E; border-color: #E0C4B6;
+  }
+  button.action:hover { opacity: 0.9; }
+  button.action:disabled { opacity: 0.6; cursor: default; }
+
+  .addform {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #5C665F; }
+  .field input {
+    border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 10px; font-size: 14px;
+    background: #fff;
+  }
+  .field input[type=time] { width: 150px; }
+  .period-label { font-size: 13px; font-weight: 700; color: #F28500; min-width: 36px; }
+  .quota-select {
+    border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 10px; font-size: 14px;
+    background: #fff; min-width: 160px;
+  }
+
+  h2.section { font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #F28500; }
+
+  .modal-bg {
+    position: relative; margin: 10px 0; padding: 12px; background: #FAFBF9;
+    border: 1px solid #DDE3D8; border-radius: 10px;
+  }
+  .modal-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .modal-row input { flex: 1; min-width: 140px; border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 10px; font-size: 14px; background: #fff; }
+  .modal-row select {
+    border: 1px solid #C7CFC5; border-radius: 8px; padding: 8px 6px; font-size: 13px;
+    background: #fff; flex: 0 0 auto;
+  }
+
+  .hint { font-size: 12px; color: #8A9289; margin-top: 6px; line-height: 1.6; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #F28500; color: #fff; padding: 10px 18px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .login-screen {
+    max-width: 360px; margin: 80px auto; text-align: center;
+    background: #fff; border: 1px solid #DDE3D8; border-radius: 12px;
+    padding: 32px 24px;
+  }
+  .login-screen h2 { font-size: 16px; margin: 0 0 8px; }
+  .login-screen p { font-size: 13px; color: #5C665F; margin: 0 0 20px; }
+  #googleBtnContainer { display: flex; justify-content: center; }
+  .login-denied { color: #A34B2E; font-size: 13px; margin-top: 14px; display: none; }
+  .user-badge {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    font-size: 12px; color: #5C665F; margin-bottom: 6px;
+  }
+  .user-badge button {
+    border: none; background: none; color: #8A9289; text-decoration: underline;
+    cursor: pointer; font-size: 12px; padding: 0;
+  }
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<div id="loginScreen" class="login-screen">
+  <h2>老闆時段登記板</h2>
+  <p>請使用公司 Google 帳號登入</p>
+  <div id="googleBtnContainer"></div>
+  <p class="login-denied" id="loginDenied">這個帳號不屬於公司網域，無法使用。</p>
+</div>
+
+<div class="wrap" id="mainApp" style="display:none;">
+  <div class="user-badge">
+    <span id="userBadgeText"></span>
+    <button id="logoutBtn">登出</button>
+  </div>
+  <header>
+    <h1>老闆時段登記板</h1>
+    <p class="sub">手刀登記，先搶先贏，大家看到的都是同一份行程表 🏃</p>
+  </header>
+
+  <div style="display:flex; align-items:center; gap:8px; margin-top:18px;">
+    <button id="prevWeekBtn" class="action secondary" style="padding:8px 12px; flex:0 0 auto;">‹</button>
+    <div class="datebar" id="datebar" style="flex:1; margin:0;"></div>
+    <button id="nextWeekBtn" class="action secondary" style="padding:8px 12px; flex:0 0 auto;">›</button>
+  </div>
+  <div style="height:16px;"></div>
+
+  <div class="card" id="openSlotFormCard">
+    <h2 class="section">開放討論額度</h2>
+    <p class="hint" style="margin-top:-4px;">老闆每日開放討論之額度，隨時可新增與調整；不用先決定幾點，實際時間之後再安排。</p>
+    <div class="addform" style="align-items:center; margin-bottom:10px;">
+      <span class="period-label">上午</span>
+      <select id="quotaAM" class="quota-select"></select>
+    </div>
+    <div class="addform" style="align-items:center;">
+      <span class="period-label">下午</span>
+      <select id="quotaPM" class="quota-select"></select>
+    </div>
+  </div>
+
+  <div class="card" id="fixedEventFormCard">
+    <h2 class="section">既定行程</h2>
+    <p class="hint" style="margin-top:-4px;">老闆每日既定行程，加在這裡會顯示在行程表中，安排時間時也會自動避開。</p>
+    <div class="addform" style="align-items:flex-end;">
+      <div class="field">
+        <label>開始時間</label>
+        <input type="time" id="fixedStart" value="09:00">
+      </div>
+      <div class="field">
+        <label>結束時間</label>
+        <input type="time" id="fixedEnd" value="09:30">
+      </div>
+      <div class="field" style="flex:1; min-width:140px;">
+        <label>行程名稱</label>
+        <input type="text" id="fixedTitle" placeholder="例如：晨會、外部會議" style="width:100%;">
+      </div>
+      <button class="action" id="addFixedEventBtn">新增既定行程</button>
+    </div>
+  </div>
+
+  <div class="card" id="queueCard">
+    <h2 class="section">排隊登記</h2>
+    <p class="hint" style="margin-top:-4px;">先搶先贏，登記後由行政或老闆安排實際時間。</p>
+    <div id="queueList"></div>
+  </div>
+
+  <div class="card" id="timelineCard">
+    <h2 class="section">已安排行程（依時間排序）</h2>
+    <div id="timelineList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwRNRL4RyWb2h_R-k_brrroguPY8VoxKnsw82tRPofq7w4D8ZX1obxWvaUavIDGvdz5AQ/exec';
+
+const DURATIONS = [15, 30, 45, 60];
+const QUOTA_STEPS = [30, 60, 90, 120, 150, 180, 210, 240];
+const PERIODS = [
+  { key: 'am', label: '上午', defaultStart: '09:00' },
+  { key: 'pm', label: '下午', defaultStart: '14:00' }
+];
+
+// 每一天的資料：{ quota: { am: 90 | 'unlimited', pm: ... }, entries: [ 排隊登記 ... ] }
+function emptyDay() { return { quota: {}, entries: [] }; }
+
+let selectedDate = todayStr();
+let day = emptyDay();
+let fixedEvents = [];
+const dayCache = {};
+const fixedCache = {};
+let lastDaySnapshot = null;
+let lastFixedSnapshot = null;
+let modalOpen = false;
+let saveInFlight = 0;
+let weekOffset = 0;
+
+// ===== 日期工具 =====
+function todayStr(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return dsFromDate(d);
+}
+
+function dsFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+// 下一個上班日（週五延到隔天 → 下週一，不會跑到沒有顯示的週末）
+function nextWorkday(ds) {
+  const d = new Date(ds + 'T00:00:00');
+  do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  return dsFromDate(d);
+}
+
+function fmtShort(ds) {
+  if (!ds) return '前一天';
+  const parts = ds.split('-');
+  return `${Number(parts[1])}/${Number(parts[2])}`;
+}
+
+function getWeekMondayFri() {
+  const d = new Date();
+  d.setDate(d.getDate() + weekOffset * 7);
+  const dow = d.getDay(); // 0=Sun ... 6=Sat
+  const diffToMon = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMon);
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const x = new Date(monday);
+    x.setDate(monday.getDate() + i);
+    days.push(x);
+  }
+  return days;
+}
+
+function buildDateBar() {
+  const bar = $('datebar');
+  bar.innerHTML = '';
+  const days = getWeekMondayFri();
+  const todayDs = todayStr();
+  days.forEach(d => {
+    const ds = dsFromDate(d);
+    const wd = ["日","一","二","三","四","五","六"][d.getDay()];
+    const btn = document.createElement('button');
+    btn.className = 'datebtn' + (ds === selectedDate ? ' active' : '');
+    btn.textContent = `${d.getMonth()+1}/${d.getDate()}（${wd}）` + (ds === todayDs ? '・今天' : '');
+    btn.onclick = () => switchToDate(ds);
+    bar.appendChild(btn);
+  });
+}
+
+$('prevWeekBtn').onclick = () => {
+  weekOffset--;
+  switchToDate(dsFromDate(getWeekMondayFri()[0]));
+};
+$('nextWeekBtn').onclick = () => {
+  weekOffset++;
+  switchToDate(dsFromDate(getWeekMondayFri()[0]));
+};
+
+function switchToDate(ds) {
+  closeForms();
+  selectedDate = ds;
+  buildDateBar();
+  day = dayCache[ds] || emptyDay();
+  fixedEvents = fixedCache[ds] || [];
+  renderAll();
+  loadDay(true);
+  loadFixed(true);
+}
+
+// ===== 小工具 =====
+function skeletonHtml(count) {
+  let html = '';
+  for (let i = 0; i < (count || 2); i++) html += '<div class="skeleton-row"></div>';
+  return html;
+}
+
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function newId(prefix) {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function toMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+function toTimeStr(mins) {
+  const h = Math.floor(mins / 60).toString().padStart(2, '0');
+  const m = (mins % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function quotaLabel(min) {
+  if (min < 60) return `約 ${min} 分鐘`;
+  const h = min / 60;
+  return `約 ${Number.isInteger(h) ? h : h.toFixed(1)} 小時`;
+}
+
+function closeForms() {
+  document.querySelectorAll('.modal-bg').forEach(el => el.remove());
+  modalOpen = false;
+}
+
+// ===== 讀寫資料（Google Apps Script） =====
+async function apiGet(key) {
+  const res = await fetch(`${APPS_SCRIPT_URL}?action=get&key=${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error('bad response');
+  const data = await res.json();
+  return data && data.value ? JSON.parse(data.value) : null;
+}
+
+async function apiSet(key, obj) {
+  saveInFlight++;
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(JSON.stringify(obj))}`);
+    const data = await res.json();
+    return !!(data && data.ok);
+  } catch (e) {
+    return false;
+  } finally {
+    saveInFlight--;
+  }
+}
+
+function normalizeDay(raw) {
+  const d = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    quota: d.quota && typeof d.quota === 'object' ? d.quota : {},
+    entries: Array.isArray(d.entries) ? d.entries : []
+  };
+}
+
+async function loadDay(force) {
+  if (!force && (modalOpen || saveInFlight > 0)) return;
+  const ds = selectedDate;
+  let fetched;
+  try {
+    fetched = normalizeDay(await apiGet('queue:' + ds));
+  } catch (e) {
+    return; // 抓失敗就保留原本畫面，等下一次自動重試，避免畫面閃動
+  }
+  if (!force && (modalOpen || saveInFlight > 0)) return; // 等待期間使用者剛好操作了，這份資料可能是舊的
+  if (ds !== selectedDate) { dayCache[ds] = fetched; return; }
+  const snapshot = JSON.stringify(fetched);
+  if (dayCache[ds] && snapshot === lastDaySnapshot) return;
+  dayCache[ds] = fetched;
+  day = fetched;
+  renderAll();
+}
+
+async function loadFixed(force) {
+  if (!force && (modalOpen || saveInFlight > 0)) return;
+  const ds = selectedDate;
+  let fetched;
+  try {
+    const raw = await apiGet('fixed:' + ds);
+    fetched = Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    return;
+  }
+  if (!force && (modalOpen || saveInFlight > 0)) return;
+  if (ds !== selectedDate) { fixedCache[ds] = fetched; return; }
+  const snapshot = JSON.stringify(fetched);
+  if (fixedCache[ds] && snapshot === lastFixedSnapshot) return;
+  fixedCache[ds] = fetched;
+  fixedEvents = fetched;
+  renderAll();
+}
+
+async function saveDay() {
+  dayCache[selectedDate] = day;
+  const ok = await apiSet('queue:' + selectedDate, day);
+  if (!ok) showToast('儲存失敗，請重試');
+  return ok;
+}
+
+async function saveFixed() {
+  fixedCache[selectedDate] = fixedEvents;
+  const ok = await apiSet('fixed:' + selectedDate, fixedEvents);
+  if (!ok) showToast('儲存失敗，請重試');
+  return ok;
+}
+
+// 資料還沒讀回來就操作，會把雲端資料蓋成空的，所以先擋住
+function ensureReady(needFixed) {
+  if (!dayCache[selectedDate] || (needFixed && !fixedCache[selectedDate])) {
+    showToast('資料還在載入中，請稍候再試');
+    return false;
+  }
+  return true;
+}
+
+// ===== 額度與排隊的計算 =====
+function quotaOf(key) {
+  const q = day.quota[key];
+  if (q === 'unlimited') return { state: 'unlimited' };
+  if (typeof q === 'number' && q > 0) return { state: 'limited', minutes: q };
+  return { state: 'closed' };
+}
+
+function usedOf(key) {
+  return day.entries.filter(e => e.period === key).reduce((s, e) => s + (e.duration || 0), 0);
+}
+
+function remainingOf(key) {
+  const q = quotaOf(key);
+  if (q.state === 'unlimited') return Infinity;
+  if (q.state === 'closed') return 0;
+  return q.minutes - usedOf(key);
+}
+
+// 排隊順序：延續自前一天的優先，其餘依登記先後
+function queueOf(key) {
+  return day.entries
+    .filter(e => e.period === key)
+    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+
+function findConflict(startMin, endMin, excludeId) {
+  for (const f of fixedEvents) {
+    if (startMin < toMinutes(f.end) && endMin > toMinutes(f.start)) return f.title;
+  }
+  for (const e of day.entries) {
+    if (e.id === excludeId || !e.scheduledStart) continue;
+    const s = toMinutes(e.scheduledStart);
+    const en = s + (e.duration || 0);
+    if (startMin < en && endMin > s) return e.name;
+  }
+  return null;
+}
+
+function suggestStart(e) {
+  const p = PERIODS.find(x => x.key === e.period) || PERIODS[0];
+  for (let m = toMinutes(p.defaultStart); m + e.duration <= 20 * 60; m += 15) {
+    if (!findConflict(m, m + e.duration, e.id)) return toTimeStr(m);
+  }
+  return p.defaultStart;
+}
+
+// ===== 畫面 =====
+function renderAll() {
+  modalOpen = false; // 重畫會清掉所有展開中的表單
+  const dayReady = !!dayCache[selectedDate];
+  const fixedReady = !!fixedCache[selectedDate];
+  lastDaySnapshot = dayReady ? JSON.stringify(day) : null;
+  lastFixedSnapshot = fixedReady ? JSON.stringify(fixedEvents) : null;
+  renderQuotaForm(dayReady);
+  renderQueue(dayReady);
+  renderTimeline(dayReady && fixedReady);
+}
+
+function fillQuotaSelects() {
+  let html = '<option value="">不開放</option>';
+  QUOTA_STEPS.forEach(m => { html += `<option value="${m}">${quotaLabel(m)}</option>`; });
+  html += '<option value="unlimited">不限額度（只開放登記）</option>';
+  $('quotaAM').innerHTML = html;
+  $('quotaPM').innerHTML = html;
+}
+
+function quotaValue(key) {
+  const q = day.quota[key];
+  if (q === 'unlimited') return 'unlimited';
+  return typeof q === 'number' && q > 0 ? String(q) : '';
+}
+
+function renderQuotaForm(ready) {
+  [['am', 'quotaAM'], ['pm', 'quotaPM']].forEach(([key, id]) => {
+    const sel = $(id);
+    sel.disabled = !ready;
+    if (document.activeElement === sel) return; // 正在選的時候不要動它
+    sel.value = ready ? quotaValue(key) : '';
+  });
+}
+
+function setQuota(key, val) {
+  if (!ensureReady()) { renderQuotaForm(!!dayCache[selectedDate]); return; }
+  if (val === '') delete day.quota[key];
+  else if (val === 'unlimited') day.quota[key] = 'unlimited';
+  else day.quota[key] = Number(val);
+  renderAll();
+  saveDay();
+  showToast('已更新額度');
+}
+$('quotaAM').onchange = () => setQuota('am', $('quotaAM').value);
+$('quotaPM').onchange = () => setQuota('pm', $('quotaPM').value);
+
+function entryRowHtml(e, n, over) {
+  const red = e.urgency === 'red';
+  let tags = `<span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span>`;
+  if (e.priority) tags += `<span class="tag tag-prio">優先・延續自 ${fmtShort(e.carriedFrom)}</span>`;
+  if (over) tags += '<span class="tag tag-red">額度外・候補</span>';
+  if (e.carried) tags += '<span class="tag tag-grey">已延至隔天</span>';
+
+  const when = e.scheduledStart
+    ? `<span class="chip chip-time">${e.scheduledStart}–${toTimeStr(toMinutes(e.scheduledStart) + e.duration)}</span>`
+    : '<span class="chip chip-wait">待安排</span>';
+
+  let btns = '';
+  if (isAdmin) btns += `<button class="action" data-act="arrange" data-id="${e.id}">${e.scheduledStart ? '改時間' : '安排時間'}</button>`;
+  btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
+  if (!e.carried) btns += `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
+  btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
+
+  return `
+    <div class="slot q-row fade-in">
+      <span class="num-badge">${n}</span>
+      <div class="meta">
+        <div class="name">${escapeHtml(e.name)} ${tags}</div>
+        <div class="topic">${escapeHtml(e.topic || '（未填主題）')}・${e.duration} 分鐘</div>
+        <div>${when}</div>
+      </div>
+      <div class="btns">${btns}</div>
+    </div>`;
+}
+
+function periodBlockHtml(p, q, entries) {
+  const used = entries.reduce((s, e) => s + (e.duration || 0), 0);
+  let status = '';
+  let sub = '';
+  let bar = '';
+  let action = '';
+
+  if (q.state === 'closed') {
+    status = '<span class="tag tag-grey" style="margin-left:0;">尚未開放</span>';
+    sub = '老闆尚未開放這個時段的額度，以下是延續過來的優先名單。';
+  } else if (q.state === 'unlimited') {
+    status = '<span class="tag tag-open">不限額度</span>';
+    sub = `已排隊 ${used} 分鐘`;
+    action = `<button class="action" data-act="book" data-period="${p.key}">我要登記</button>`;
+  } else {
+    const remaining = q.minutes - used;
+    const pct = Math.min(100, Math.round(used / q.minutes * 100));
+    status = `<span class="tag tag-open">額度${quotaLabel(q.minutes)}</span>`;
+    sub = remaining > 0 ? `已排隊 ${used} 分鐘，還剩 ${remaining} 分鐘` : `已排隊 ${used} 分鐘，額度已滿`;
+    bar = `<div class="quota-bar"><div class="quota-fill${remaining <= 0 ? ' full' : ''}" style="width:${pct}%"></div></div>`;
+    action = remaining >= 15
+      ? `<button class="action" data-act="book" data-period="${p.key}">我要登記</button>`
+      : '<span class="tag tag-red" style="margin-left:0;">額度已滿</span>';
+  }
+
+  let rows = '';
+  if (!entries.length) {
+    rows = '<div class="empty-mini">還沒有人登記，成為第一位吧！</div>';
+  } else {
+    let running = 0;
+    let html = '';
+    entries.forEach((e, i) => {
+      running += e.duration || 0;
+      const over = q.state === 'limited' && running > q.minutes;
+      html += entryRowHtml(e, i + 1, over);
+    });
+    rows = `<div class="period-rows">${html}</div>`;
+  }
+
+  return `
+    <div class="period-block" data-period="${p.key}">
+      <div class="period-head">
+        <div>
+          <div><span class="period-title">${p.label}</span>${status}</div>
+          ${bar}
+          <div class="period-sub">${sub}</div>
+        </div>
+        ${action}
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function renderQueue(ready) {
+  const list = $('queueList');
+  if (!ready) { list.innerHTML = skeletonHtml(3); return; }
+  let html = '';
+  let shown = 0;
+  PERIODS.forEach(p => {
+    const q = quotaOf(p.key);
+    const entries = queueOf(p.key);
+    if (q.state === 'closed' && !entries.length) return;
+    shown++;
+    html += periodBlockHtml(p, q, entries);
+  });
+  list.innerHTML = shown ? html : '<div class="empty">老闆今天還沒有開放討論額度，請稍後再來看看。</div>';
+}
+
+function renderTimeline(ready) {
+  const list = $('timelineList');
+  if (!ready) { list.innerHTML = skeletonHtml(2); return; }
+
+  const items = [];
+  fixedEvents.forEach(f => items.push({ type: 'fixed', start: f.start, end: f.end, f }));
+  day.entries.forEach(e => {
+    if (e.scheduledStart) {
+      items.push({ type: 'entry', start: e.scheduledStart, end: toTimeStr(toMinutes(e.scheduledStart) + e.duration), e });
+    }
+  });
+  items.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+
+  if (!items.length) {
+    list.innerHTML = '<div class="empty">目前還沒有安排行程。</div>';
+    return;
+  }
+
+  let html = '';
+  items.forEach(it => {
+    if (it.type === 'fixed') {
+      html += `
+        <div class="slot fade-in">
+          <div class="time" style="display:flex; align-items:center; gap:6px; width:124px; flex-shrink:0; white-space:nowrap;">
+            <span class="num-badge fixed">✦</span>
+            <span>${it.start}–${it.end}</span>
+          </div>
+          <div class="meta"><div class="name">${escapeHtml(it.f.title)}</div></div>
+          ${isAdmin ? `<button class="action danger" data-act="deleteFixed" data-id="${it.f.id}">刪除</button>` : ''}
+        </div>`;
+    } else {
+      const red = it.e.urgency === 'red';
+      html += `
+        <div class="slot fade-in">
+          <div class="time" style="display:flex; align-items:center; gap:6px; width:124px; flex-shrink:0; white-space:nowrap;">
+            <span class="num-badge">✓</span>
+            <span>${it.start}–${it.end}</span>
+          </div>
+          <div class="meta">
+            <div class="name">${escapeHtml(it.e.name)} <span class="tag tag-${red ? 'red' : 'yellow'}">${red ? '緊急' : '普通'}</span></div>
+            <div class="topic">${escapeHtml(it.e.topic || '（未填主題）')}</div>
+          </div>
+        </div>`;
+    }
+  });
+  list.innerHTML = html;
+}
+
+// ===== 操作：登記 / 編輯 / 安排時間 / 取消 / 延到隔天 =====
+$('queueList').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn || btn.disabled) return;
+  const act = btn.dataset.act;
+  if (act === 'book') openBookForm(btn.dataset.period, btn);
+  else if (act === 'arrange') openArrangeForm(btn.dataset.id, btn);
+  else if (act === 'edit') openEditForm(btn.dataset.id, btn);
+  else if (act === 'carry') carryOverEntry(btn.dataset.id, btn);
+  else if (act === 'cancel') cancelEntry(btn.dataset.id);
+});
+
+$('timelineList').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-act="deleteFixed"]');
+  if (btn) deleteFixedEvent(btn.dataset.id);
+});
+
+function openBookForm(key, btn) {
+  if (!ensureReady()) return;
+  closeForms();
+  if (quotaOf(key).state === 'closed') { showToast('這個時段還沒有開放'); return; }
+  const remaining = remainingOf(key);
+  const opts = DURATIONS.filter(d => d <= remaining);
+  if (!opts.length) { showToast('這個時段的額度已滿'); return; }
+  modalOpen = true;
+  const defDur = opts.includes(30) ? 30 : opts[opts.length - 1];
+
+  const box = document.createElement('div');
+  box.className = 'modal-bg';
+  box.innerHTML = `
+    <div class="modal-row" style="align-items:center;">
+      <select id="qDuration" style="width:90px;">
+        ${opts.map(d => `<option value="${d}" ${d === defDur ? 'selected' : ''}>${d}分鐘</option>`).join('')}
+      </select>
+      <input type="text" id="qName" placeholder="你的名字" value="${escapeHtml(window.currentUserName || '')}" style="flex:1; min-width:100px;">
+      <select id="qUrgency" style="width:80px;">
+        <option value="yellow">普通</option>
+        <option value="red">緊急</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <input type="text" id="qTopic" placeholder="想討論的主題（一句話即可）" style="flex:1;">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="action" id="qConfirm">確認登記</button>
+      <button class="action secondary" id="qCancel">取消</button>
+    </div>
+  `;
+  btn.closest('.period-head').after(box);
+
+  $('qCancel').onclick = closeForms;
+  $('qConfirm').onclick = () => {
+    const name = $('qName').value.trim();
+    const topic = $('qTopic').value.trim();
+    const duration = Number($('qDuration').value);
+    const urgency = $('qUrgency').value;
+    if (!name) { showToast('請先填寫名字'); return; }
+    if (duration > remainingOf(key)) { showToast('額度不夠了，請選短一點的時間'); return; }
+    const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now() };
+    if (topic) entry.topic = topic;
+    if (urgency === 'red') entry.urgency = 'red';
+    day.entries.push(entry);
+    const pos = queueOf(key).findIndex(e => e.id === entry.id) + 1;
+    renderAll();
+    showToast(`登記成功，目前排第 ${pos} 位`);
+    saveDay();
+  };
+}
+
+function openEditForm(id, btn) {
+  if (!ensureReady()) return;
+  const e = day.entries.find(x => x.id === id);
+  if (!e) return;
+  closeForms();
+  modalOpen = true;
+
+  const durs = DURATIONS.includes(e.duration) ? DURATIONS : [...DURATIONS, e.duration].sort((a, b) => a - b);
+  const box = document.createElement('div');
+  box.className = 'modal-bg';
+  box.innerHTML = `
+    <div class="modal-row" style="align-items:center;">
+      <select id="editDuration" style="width:90px;">
+        ${durs.map(d => `<option value="${d}" ${d === e.duration ? 'selected' : ''}>${d}分鐘</option>`).join('')}
+      </select>
+      <input type="text" id="editName" value="${escapeHtml(e.name)}" placeholder="名字" style="flex:1; min-width:100px;">
+      <select id="editUrgency" style="width:80px;">
+        <option value="yellow" ${e.urgency !== 'red' ? 'selected' : ''}>普通</option>
+        <option value="red" ${e.urgency === 'red' ? 'selected' : ''}>緊急</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <input type="text" id="editTopic" value="${escapeHtml(e.topic || '')}" placeholder="想討論的主題" style="flex:1;">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="action" id="editConfirm">儲存</button>
+      <button class="action secondary" id="editCancel">取消</button>
+    </div>
+  `;
+  btn.closest('.slot').after(box);
+
+  $('editCancel').onclick = closeForms;
+  $('editConfirm').onclick = () => {
+    const name = $('editName').value.trim();
+    const topic = $('editTopic').value.trim();
+    const duration = Number($('editDuration').value);
+    const urgency = $('editUrgency').value;
+    if (!name) { showToast('請填寫名字'); return; }
+    if (duration !== e.duration) {
+      const allowed = remainingOf(e.period) + e.duration;
+      if (duration > e.duration && duration > allowed) {
+        showToast(`額度不足，最多只能改成 ${allowed} 分鐘`);
+        return;
+      }
+      if (e.scheduledStart) {
+        const s = toMinutes(e.scheduledStart);
+        const c = findConflict(s, s + duration, e.id);
+        if (c) { showToast(`改成 ${duration} 分鐘會和「${c}」重疊，請先調整安排的時間`); return; }
+      }
+    }
+    e.name = name;
+    e.duration = duration;
+    if (topic) e.topic = topic; else delete e.topic;
+    if (urgency === 'red') e.urgency = 'red'; else delete e.urgency;
+    renderAll();
+    showToast('已更新');
+    saveDay();
+  };
+}
+
+function timeOptionsHtml(selected) {
+  let html = '';
+  let found = false;
+  for (let m = 8 * 60; m <= 20 * 60; m += 15) {
+    const t = toTimeStr(m);
+    if (t === selected) found = true;
+    html += `<option value="${t}" ${t === selected ? 'selected' : ''}>${t}</option>`;
+  }
+  if (selected && !found) html = `<option value="${selected}" selected>${selected}</option>` + html;
+  return html;
+}
+
+function openArrangeForm(id, btn) {
+  if (!ensureReady(true)) return;
+  const e = day.entries.find(x => x.id === id);
+  if (!e) return;
+  closeForms();
+  modalOpen = true;
+
+  const initial = e.scheduledStart || suggestStart(e);
+  const box = document.createElement('div');
+  box.className = 'modal-bg';
+  box.innerHTML = `
+    <div class="modal-row" style="align-items:center;">
+      <span style="font-size:13px; font-weight:700; color:#F28500;">開始時間</span>
+      <select id="arrStart" style="width:100px;">${timeOptionsHtml(initial)}</select>
+      <span id="arrPreview" class="hint" style="margin:0;"></span>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="action" id="arrConfirm">確認安排</button>
+      ${e.scheduledStart ? '<button class="action danger" id="arrClear">取消安排</button>' : ''}
+      <button class="action secondary" id="arrCancel">關閉</button>
+    </div>
+  `;
+  btn.closest('.slot').after(box);
+
+  function refreshPreview() {
+    const s = toMinutes($('arrStart').value);
+    const end = s + e.duration;
+    const c = findConflict(s, end, e.id);
+    const p = $('arrPreview');
+    if (c) { p.textContent = `⚠ 和「${c}」時間重疊`; p.style.color = '#A34B2E'; }
+    else { p.textContent = `${e.duration} 分鐘，${toTimeStr(end)} 結束`; p.style.color = ''; }
+  }
+  $('arrStart').onchange = refreshPreview;
+  refreshPreview();
+
+  $('arrCancel').onclick = closeForms;
+  if ($('arrClear')) {
+    $('arrClear').onclick = () => {
+      delete e.scheduledStart;
+      renderAll();
+      showToast('已取消安排，回到待安排');
+      saveDay();
+    };
+  }
+  $('arrConfirm').onclick = () => {
+    const start = $('arrStart').value;
+    const s = toMinutes(start);
+    const end = s + e.duration;
+    const c = findConflict(s, end, e.id);
+    if (c) { showToast(`和「${c}」的時間重疊，請換一個時間`); return; }
+    e.scheduledStart = start;
+    renderAll();
+    showToast(`已安排 ${start}–${toTimeStr(end)}`);
+    saveDay();
+  };
+}
+
+function cancelEntry(id) {
+  if (!ensureReady()) return;
+  const i = day.entries.findIndex(x => x.id === id);
+  if (i < 0) return;
+  day.entries.splice(i, 1);
+  renderAll();
+  saveDay();
+}
+
+async function carryOverEntry(id, btn) {
+  if (!ensureReady()) return;
+  const dsAtStart = selectedDate;
+  const dayAtStart = day;
+  const e = dayAtStart.entries.find(x => x.id === id);
+  if (!e || e.carried) return;
+  const nextDs = nextWorkday(dsAtStart);
+
+  btn.disabled = true;
+  btn.textContent = '處理中…';
+
+  let nextDay;
+  try {
+    nextDay = normalizeDay(await apiGet('queue:' + nextDs));
+  } catch (err) {
+    showToast('延到隔天失敗，請稍後再試');
+    if (selectedDate === dsAtStart) renderAll();
+    return;
+  }
+
+  const carried = { id: newId('e'), name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
+  if (e.topic) carried.topic = e.topic;
+  if (e.urgency === 'red') carried.urgency = 'red';
+  nextDay.entries.push(carried);
+
+  const ok = await apiSet('queue:' + nextDs, nextDay);
+  if (!ok) {
+    showToast('延到隔天失敗，請稍後再試');
+    if (selectedDate === dsAtStart) renderAll();
+    return;
+  }
+  dayCache[nextDs] = nextDay;
+  if (selectedDate === nextDs) day = nextDay;
+
+  e.carried = true;
+  apiSet('queue:' + dsAtStart, dayAtStart).then(saved => { if (!saved) showToast('儲存失敗，請重試'); });
+  renderAll();
+  showToast(`已加入 ${fmtShort(nextDs)} 的排隊名單（優先）`);
+}
+
+// ===== 既定行程（管理員） =====
+function addFixedEvent() {
+  if (!ensureReady(true)) return;
+  const start = $('fixedStart').value;
+  const end = $('fixedEnd').value;
+  const title = $('fixedTitle').value.trim();
+  if (!start || !end || start >= end) { showToast('請確認開始與結束時間'); return; }
+  if (!title) { showToast('請填寫行程名稱'); return; }
+  const s = toMinutes(start);
+  const en = toMinutes(end);
+  const clash = day.entries.find(e => e.scheduledStart &&
+    s < toMinutes(e.scheduledStart) + e.duration && en > toMinutes(e.scheduledStart));
+  fixedEvents.push({ id: newId('f'), start, end, title });
+  $('fixedTitle').value = '';
+  renderAll();
+  saveFixed();
+  if (clash) showToast(`已新增，但和「${clash.name}」已安排的時間重疊，請調整`);
+}
+
+function deleteFixedEvent(id) {
+  if (!ensureReady(true)) return;
+  const i = fixedEvents.findIndex(f => f.id === id);
+  if (i < 0) return;
+  fixedEvents.splice(i, 1);
+  renderAll();
+  saveFixed();
+}
+
+$('addFixedEventBtn').onclick = addFixedEvent;
+
+// ===== Google 登入（限制公司網域） =====
+// 設定步驟：
+// 1. 到 https://console.cloud.google.com/ 建一個專案（或用現有的）
+// 2. 「API 和服務」→「憑證」→「建立憑證」→「OAuth 用戶端 ID」，類型選「網頁應用程式」
+// 3. 「已授權的 JavaScript 來源」填入這個網頁實際的網址（例如 https://claude.ai 或你發布後的網址）
+// 4. 建立後會拿到一組 Client ID，貼到下面 GOOGLE_CLIENT_ID
+// 5. ALLOWED_DOMAINS 改成公司 Google 帳號的網域（可以填多個）
+const GOOGLE_CLIENT_ID = '760769778758-3um9llcqo5jfsc3klsi6t68v1uc0hvfr.apps.googleusercontent.com';
+const ALLOWED_DOMAINS = ['w-power.com.tw', 'wenergy.com.tw'];
+
+// 「開放討論額度」「既定行程」「安排時間」只開放給下面這些 email（行政、老闆）
+const ADMIN_EMAILS = [
+  'rusen.wu@wenergy.com.tw',
+  'belinda.yeh@wenergy.com.tw',
+  'avon.cheng@wenergy.com.tw',
+  'miac@w-power.com.tw'
+];
+
+let isAdmin = false;
+
+function applyRolePermissions(email) {
+  isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes((email || '').toLowerCase());
+  $('openSlotFormCard').style.display = isAdmin ? 'block' : 'none';
+  $('fixedEventFormCard').style.display = isAdmin ? 'block' : 'none';
+}
+
+function decodeJwt(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join('')));
+  } catch (e) {
+    return null;
+  }
+}
+
+function handleGoogleLogin(response) {
+  const payload = decodeJwt(response.credential);
+  if (!payload) { showToast('登入解析失敗，請重試'); return; }
+  const email = payload.email || '';
+  const domain = (email.split('@')[1] || '').toLowerCase();
+  const allowed = ALLOWED_DOMAINS.some(d => d.toLowerCase() === domain);
+  if (!allowed) {
+    $('loginDenied').style.display = 'block';
+    return;
+  }
+  $('loginDenied').style.display = 'none';
+  $('loginScreen').style.display = 'none';
+  $('mainApp').style.display = 'block';
+  $('userBadgeText').textContent = `${payload.name || email}（${email}）`;
+  window.currentUserName = payload.name || email;
+  applyRolePermissions(email);
+  try {
+    localStorage.setItem('boardUser', JSON.stringify({
+      name: payload.name || email, email, ts: Date.now()
+    }));
+  } catch (e) {}
+  initApp();
+}
+
+$('logoutBtn').onclick = () => {
+  try { localStorage.removeItem('boardUser'); } catch (e) {}
+  $('mainApp').style.display = 'none';
+  $('loginScreen').style.display = 'block';
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.disableAutoSelect();
+  }
+};
+
+const SESSION_DAYS = 7;
+
+function tryRestoreSession() {
+  try {
+    const raw = localStorage.getItem('boardUser');
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    const domain = (saved.email.split('@')[1] || '').toLowerCase();
+    const allowed = ALLOWED_DOMAINS.some(d => d.toLowerCase() === domain);
+    const notExpired = (Date.now() - saved.ts) < SESSION_DAYS * 24 * 60 * 60 * 1000;
+    if (!allowed || !notExpired) {
+      localStorage.removeItem('boardUser');
+      return false;
+    }
+    $('loginScreen').style.display = 'none';
+    $('mainApp').style.display = 'block';
+    $('userBadgeText').textContent = `${saved.name}（${saved.email}）`;
+    window.currentUserName = saved.name;
+    applyRolePermissions(saved.email);
+    initApp();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function startGoogleButton(retriesLeft) {
+  if (retriesLeft === undefined) retriesLeft = 25;
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleLogin
+    });
+    google.accounts.id.renderButton($('googleBtnContainer'), { theme: 'outline', size: 'large', text: 'signin_with' });
+    return;
+  }
+  // Google 的登入腳本可能還沒載入完，稍等一下再試，最多重試 25 次（約 5 秒）
+  if (retriesLeft > 0) {
+    setTimeout(() => startGoogleButton(retriesLeft - 1), 200);
+  }
+}
+
+window.onload = () => {
+  if (tryRestoreSession()) return;
+  startGoogleButton();
+};
+
+function initApp() {
+  fillQuotaSelects();
+  buildDateBar();
+  renderAll();
+  loadDay(true);
+  loadFixed(true);
+  if (!window._pollingStarted) {
+    window._pollingStarted = true;
+    setInterval(loadDay, 8000);
+    setInterval(loadFixed, 8000);
+  }
+}
+</script>
+</body>
+</html>
