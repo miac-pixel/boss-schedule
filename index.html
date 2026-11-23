@@ -630,9 +630,10 @@ function taipeiDateStr() {
   const d = taipeiNow();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
-// 一般同事：台北時間 15:30 之後，不能再登記「下一個上班日」；管理員不受限
+// 一般同事：當天不能登記；台北時間 15:30 之後，不能再登記「下一個上班日」；管理員不受限
 function bookingClosed(ds) {
   if (isAdmin) return false;
+  if (ds <= taipeiDateStr()) return true; // 當天（含更早）一律不能自行登記，需洽行政
   const d = taipeiNow();
   const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
   return mins >= CUTOFF_MINUTES && ds === nextWorkday(taipeiDateStr());
@@ -714,8 +715,8 @@ function periodBlockHtml(p, q, entries) {
   }
 
   if (action.includes('data-act="book"') && bookingClosed(selectedDate)) {
-    action = '<button class="action" disabled>已截止</button>';
-    sub = '已截止，如有急事請洽行政';
+    action = `<button class="action" disabled>${selectedDate <= taipeiDateStr() ? '當天不開放' : '已截止'}</button>`;
+    sub = selectedDate <= taipeiDateStr() ? '當天不開放自行登記，請洽行政' : '已截止，如有急事請洽行政';
   }
 
   return `
@@ -816,7 +817,7 @@ $('timelineList').addEventListener('click', (ev) => {
 
 function openBookForm(key, btn) {
   if (!ensureReady()) return;
-  if (bookingClosed(selectedDate)) { showToast('已截止，如有急事請洽行政'); renderAll(); return; }
+  if (bookingClosed(selectedDate)) { showToast(selectedDate <= taipeiDateStr() ? '當天不開放自行登記，請洽行政' : '已截止，如有急事請洽行政'); renderAll(); return; }
   closeForms();
   if (quotaOf(key).state === 'closed') { showToast('這個時段還沒有開放'); return; }
   const remaining = remainingOf(key);
@@ -849,7 +850,7 @@ function openBookForm(key, btn) {
     const name = $('qName').value.trim();
     const topic = $('qTopic').value.trim();
     const duration = Number($('qDuration').value);
-    if (bookingClosed(selectedDate)) { showToast('已截止，如有急事請洽行政'); closeForms(); renderAll(); return; }
+    if (bookingClosed(selectedDate)) { showToast(selectedDate <= taipeiDateStr() ? '當天不開放自行登記，請洽行政' : '已截止，如有急事請洽行政'); closeForms(); renderAll(); return; }
     if (!name) { showToast('請先填寫名字'); return; }
     if (duration > remainingOf(key)) { showToast('額度不夠了，請選短一點的時間'); return; }
     const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now(), owner: (window.currentUserEmail || '').toLowerCase() };
