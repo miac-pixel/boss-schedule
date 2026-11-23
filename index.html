@@ -607,6 +607,37 @@ function topicText(e) {
   return e.topic || '（未填主題）';
 }
 
+// ===== 隔天登記截止（以 Apps Script 伺服器時間為準，台北時間 15:30） =====
+const CUTOFF_MINUTES = 15 * 60 + 30;
+let serverOffset = 0; // 伺服器時間 − 本機時間（毫秒）；取不到伺服器時間時為 0，改用本機時鐘
+
+async function syncServerTime() {
+  try {
+    const t0 = Date.now();
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=time`);
+    const data = await res.json();
+    const t1 = Date.now();
+    if (data && typeof data.now === 'number') {
+      serverOffset = data.now - (t0 + t1) / 2; // 扣掉網路來回的一半
+    }
+  } catch (e) { /* 失敗就沿用上一次的結果 */ }
+}
+
+function taipeiNow() {
+  return new Date(Date.now() + serverOffset + 8 * 3600 * 1000); // 用 getUTC* 讀取，即為台北時間
+}
+function taipeiDateStr() {
+  const d = taipeiNow();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+// 一般同事：台北時間 15:30 之後，不能再登記「下一個上班日」；管理員不受限
+function bookingClosed(ds) {
+  if (isAdmin) return false;
+  const d = taipeiNow();
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return mins >= CUTOFF_MINUTES && ds === nextWorkday(taipeiDateStr());
+}
+
 function entryRowHtml(e, n, over) {
   let tags = '';
   if (e.priority) tags += `<span class="tag tag-prio">優先・延續自 ${fmtShort(e.carriedFrom)}</span>`;
@@ -673,6 +704,11 @@ function periodBlockHtml(p, q, entries) {
       html += entryRowHtml(e, i + 1, over);
     });
     rows = `<div class="period-rows">${html}</div>`;
+  }
+
+  if (action.includes('data-act="book"') && bookingClosed(selectedDate)) {
+    action = '<button class="action" disabled>已截止</button>';
+    sub = '已截止，如有急事請洽行政';
   }
 
   return `
@@ -773,6 +809,7 @@ $('timelineList').addEventListener('click', (ev) => {
 
 function openBookForm(key, btn) {
   if (!ensureReady()) return;
+  if (bookingClosed(selectedDate)) { showToast('已截止，如有急事請洽行政'); renderAll(); return; }
   closeForms();
   if (quotaOf(key).state === 'closed') { showToast('這個時段還沒有開放'); return; }
   const remaining = remainingOf(key);
@@ -805,6 +842,7 @@ function openBookForm(key, btn) {
     const name = $('qName').value.trim();
     const topic = $('qTopic').value.trim();
     const duration = Number($('qDuration').value);
+    if (bookingClosed(selectedDate)) { showToast('已截止，如有急事請洽行政'); closeForms(); renderAll(); return; }
     if (!name) { showToast('請先填寫名字'); return; }
     if (duration > remainingOf(key)) { showToast('額度不夠了，請選短一點的時間'); return; }
     const entry = { id: newId('e'), name, duration, period: key, createdAt: Date.now(), owner: (window.currentUserEmail || '').toLowerCase() };
@@ -1123,6 +1161,7 @@ window.onload = () => {
 
 function initApp() {
   fillQuotaSelects();
+  syncServerTime().then(() => renderAll());
   buildDateBar();
   renderAll();
   loadDay(true);
@@ -1131,6 +1170,14 @@ function initApp() {
     window._pollingStarted = true;
     setInterval(loadDay, 8000);
     setInterval(loadFixed, 8000);
+    setInterval(syncServerTime, 10 * 60 * 1000);
+    // 到了 15:30 自動切換按鈕狀態（有表單開著時不打斷）
+    let lastClosed = null;
+    setInterval(() => {
+      const c = bookingClosed(selectedDate);
+      if (lastClosed !== null && c !== lastClosed && !modalOpen && dayCache[selectedDate]) renderAll();
+      lastClosed = c;
+    }, 15000);
   }
 }
 </script>
