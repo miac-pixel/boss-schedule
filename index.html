@@ -638,6 +638,11 @@ function bookingClosed(ds) {
   return mins >= CUTOFF_MINUTES && ds === nextWorkday(taipeiDateStr());
 }
 
+// 當天（含更早的日期）起，一般同事不能再編輯內容；管理員不受限
+function editLocked(ds) {
+  return !isAdmin && ds <= taipeiDateStr();
+}
+
 function entryRowHtml(e, n, over) {
   let tags = '';
   if (e.priority) tags += `<span class="tag tag-prio">優先・延續自 ${fmtShort(e.carriedFrom)}</span>`;
@@ -648,7 +653,9 @@ function entryRowHtml(e, n, over) {
   let btns = '';
   if (canManage(e)) {
     btns += `<button class="action secondary" data-act="done" data-id="${e.id}">${e.done ? '取消已討論' : '已討論完'}</button>`;
-    btns += `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
+    btns += editLocked(selectedDate)
+      ? '<button class="action secondary" disabled title="當天起不能再編輯，如需修改請洽行政">編輯</button>'
+      : `<button class="action secondary" data-act="edit" data-id="${e.id}">編輯</button>`;
     btns += e.carried
       ? `<button class="action secondary" data-act="uncarry" data-id="${e.id}">取消延期</button>`
       : `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
@@ -860,6 +867,7 @@ function openEditForm(id, btn) {
   const e = day.entries.find(x => x.id === id);
   if (!e) return;
   if (!canManage(e)) { showToast('只能編輯自己的登記'); return; }
+  if (editLocked(selectedDate)) { showToast('當天起不能再編輯，如需修改請洽行政'); renderAll(); return; }
   closeForms();
   modalOpen = true;
 
@@ -885,6 +893,7 @@ function openEditForm(id, btn) {
 
   $('editCancel').onclick = closeForms;
   $('editConfirm').onclick = () => {
+    if (editLocked(selectedDate)) { showToast('當天起不能再編輯，如需修改請洽行政'); closeForms(); renderAll(); return; }
     const name = $('editName').value.trim();
     const topic = $('editTopic').value.trim();
     const duration = Number($('editDuration').value);
