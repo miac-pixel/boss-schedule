@@ -295,6 +295,13 @@ function nextWorkday(ds) {
   return dsFromDate(d);
 }
 
+// 前一個工作日（週一的前一個工作日是上週五）
+function prevWorkday(ds) {
+  const d = new Date(ds + 'T00:00:00');
+  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  return dsFromDate(d);
+}
+
 function fmtShort(ds) {
   if (!ds) return '前一天';
   const parts = ds.split('-');
@@ -317,6 +324,19 @@ function getWeekMondayFri() {
   return days;
 }
 
+// 管理員：把本週其他天的資料也先讀進來，日期按鈕才能標出「不開放／未確認」
+async function loadWeekStatus() {
+  if (!isAdmin) return;
+  const days = getWeekMondayFri().map(dsFromDate).filter(ds => !dayCache[ds]);
+  await Promise.all(days.map(async ds => {
+    try {
+      const fetched = normalizeDay(await apiGet('queue:' + ds));
+      if (!dayCache[ds]) dayCache[ds] = fetched;
+    } catch (e) { /* 失敗就先不標記 */ }
+  }));
+  buildDateBar();
+}
+
 function buildDateBar() {
   const bar = $('datebar');
   bar.innerHTML = '';
@@ -327,7 +347,14 @@ function buildDateBar() {
     const wd = ["日","一","二","三","四","五","六"][d.getDay()];
     const btn = document.createElement('button');
     btn.className = 'datebtn' + (ds === selectedDate ? ' active' : '');
-    btn.innerHTML = `<span style="display:block; font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span><span style="display:block; font-size:11px;">${wd}${ds === todayDs ? '・今天' : ''}</span>`;
+    let mark = '';
+    const dd = dayCache[ds];
+    if (isAdmin && dd) {
+      const am = dd.quota.am;
+      if (am === 'closed') mark = '<span style="display:block; font-size:10px; color:#8A9289;">不開放</span>';
+      else if (am === undefined) mark = '<span style="display:block; font-size:10px; color:#F28500;">未確認</span>';
+    }
+    btn.innerHTML = `<span style="display:block; font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span><span style="display:block; font-size:11px;">${wd}${ds === todayDs ? '・今天' : ''}</span>${mark}`;
     btn.onclick = () => switchToDate(ds);
     bar.appendChild(btn);
   });
@@ -346,6 +373,7 @@ function switchToDate(ds) {
   closeForms();
   selectedDate = ds;
   buildDateBar();
+  loadWeekStatus();
   day = dayCache[ds] || emptyDay();
   fixedEvents = fixedCache[ds] || [];
   renderAll();
@@ -500,6 +528,7 @@ function ensureReady(needFixed) {
 // ===== 額度與排隊的計算 =====
 function quotaOf(key) {
   const q = day.quota[key];
+  if (q === undefined && key === 'am') return { state: 'unlimited' }; // 預設：上午開放登記
   if (q === 'unlimited') return { state: 'unlimited' };
   if (typeof q === 'number' && q > 0) return { state: 'limited', minutes: q };
   return { state: 'closed' };
@@ -565,13 +594,14 @@ function renderAll() {
 function fillQuotaSelects() {
   let html = '<option value="">不開放</option>';
   QUOTA_STEPS.forEach(m => { html += `<option value="${m}">${quotaLabel(m)}</option>`; });
-  html += '<option value="unlimited">不限額度（只開放登記）</option>';
-  $('quotaAM').innerHTML = html;
+  html += '<option value="unlimited">開放登記（不設額度）</option>';
+  $('quotaAM').innerHTML = '<option value="default">預設開放（尚未確認）</option>' + html;
   $('quotaPM').innerHTML = html;
 }
 
 function quotaValue(key) {
   const q = day.quota[key];
+  if (q === undefined && key === 'am') return 'default';
   if (q === 'unlimited') return 'unlimited';
   return typeof q === 'number' && q > 0 ? String(q) : '';
 }
@@ -587,10 +617,12 @@ function renderQuotaForm(ready) {
 
 function setQuota(key, val) {
   if (!ensureReady()) { renderQuotaForm(!!dayCache[selectedDate]); return; }
-  if (val === '') delete day.quota[key];
+  if (val === 'default') delete day.quota[key];
+  else if (val === '') day.quota[key] = 'closed';
   else if (val === 'unlimited') day.quota[key] = 'unlimited';
   else day.quota[key] = Number(val);
   renderAll();
+  buildDateBar();
   saveDay();
   showToast('已更新額度');
 }
@@ -636,7 +668,9 @@ function bookingClosed(ds) {
   if (ds <= taipeiDateStr()) return true; // 當天（含更早）一律不能自行登記，需洽行政
   const d = taipeiNow();
   const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return mins >= CUTOFF_MINUTES && ds === nextWorkday(taipeiDateStr());
+  const prev = prevWorkday(ds);
+  const today = taipeiDateStr();
+  return prev < today || (prev === today && mins >= CUTOFF_MINUTES); // 前一個工作日 15:30 起截止（週末看下週一也已截止）
 }
 
 // 當天（含更早的日期）起，一般同事不能再編輯內容；管理員不受限
@@ -660,6 +694,7 @@ function entryRowHtml(e, n, over) {
     btns += e.carried
       ? `<button class="action secondary" data-act="uncarry" data-id="${e.id}">取消延期</button>`
       : `<button class="action secondary" data-act="carry" data-id="${e.id}">延到隔天</button>`;
+    if (isAdmin && !e.carried) btns += `<button class="action secondary" data-act="movePeriod" data-id="${e.id}">${e.period === 'am' ? '移到下午' : '移到上午'}</button>`;
     btns += `<button class="action danger" data-act="cancel" data-id="${e.id}">取消</button>`;
   }
   const tx = topicText(e);
@@ -683,11 +718,11 @@ function periodBlockHtml(p, q, entries) {
   let action = '';
 
   if (q.state === 'closed') {
-    status = '<span class="tag tag-grey" style="margin-left:0;">尚未開放</span>';
-    sub = '老闆尚未開放這個時段的額度，以下是延續過來的優先名單。';
+    status = '<span class="tag tag-grey" style="margin-left:0;">尚未開放登記</span>';
+    sub = '這個時段尚未開放登記，以下是延續或移過來的名單。';
   } else if (q.state === 'unlimited') {
-    status = '<span class="tag tag-open">不限額度</span>';
-    sub = `已排隊 ${used} 分鐘`;
+    status = '<span class="tag tag-open">開放登記</span>';
+    sub = isAdmin ? `已有 ${entries.length} 人登記，共 ${used} 分鐘` : `已有 ${entries.length} 人登記`;
     action = `<button class="action" data-act="book" data-period="${p.key}">我要登記</button>`;
   } else {
     const remaining = q.minutes - used;
@@ -802,6 +837,7 @@ $('queueList').addEventListener('click', (ev) => {
   else if (act === 'edit') openEditForm(btn.dataset.id, btn);
   else if (act === 'done') toggleDone(btn.dataset.id);
   else if (act === 'carry') carryOverEntry(btn.dataset.id, btn);
+  else if (act === 'movePeriod') movePeriod(btn.dataset.id);
   else if (act === 'uncarry') uncarryEntry(btn.dataset.id, btn);
   else if (act === 'cancel') cancelEntry(btn.dataset.id);
 });
@@ -901,7 +937,7 @@ function openEditForm(id, btn) {
     if (!name) { showToast('請填寫名字'); return; }
     if (duration !== e.duration) {
       const allowed = remainingOf(e.period) + e.duration;
-      if (duration > e.duration && duration > allowed) {
+      if (quotaOf(e.period).state !== 'closed' && duration > e.duration && duration > allowed) {
         showToast(`額度不足，最多只能改成 ${allowed} 分鐘`);
         return;
       }
@@ -913,6 +949,20 @@ function openEditForm(id, btn) {
     showToast('已更新');
     saveDay();
   };
+}
+
+// 管理員：早上排不下，把這筆移到下午（或移回上午）；不會因此開放該時段的登記
+function movePeriod(id) {
+  if (!ensureReady()) return;
+  const e = day.entries.find(x => x.id === id);
+  if (!e || !isAdmin) return;
+  const target = e.period === 'am' ? 'pm' : 'am';
+  const label = target === 'am' ? '上午' : '下午';
+  e.period = target;
+  delete e.rank; // 排到該時段最後面
+  renderAll();
+  showToast(`已移到${label}`);
+  saveDay();
 }
 
 function toggleDone(id) {
@@ -956,7 +1006,7 @@ async function carryOverEntry(id, btn) {
     return;
   }
 
-  const carried = { id: newId('e'), owner: e.owner || '', name: e.name, duration: e.duration, period: e.period, createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
+  const carried = { id: newId('e'), owner: e.owner || '', name: e.name, duration: e.duration, period: 'am', createdAt: Date.now(), priority: true, carriedFrom: dsAtStart };
   if (e.topic) carried.topic = e.topic;
   placeEntry(nextDay, carried, true);
 
@@ -1176,6 +1226,7 @@ function initApp() {
   renderAll();
   loadDay(true);
   loadFixed(true);
+  loadWeekStatus();
   if (!window._pollingStarted) {
     window._pollingStarted = true;
     setInterval(loadDay, 8000);
