@@ -699,7 +699,7 @@ function entryRowHtml(e, n, over) {
 
   return `
     <div class="slot q-row fade-in${e.done ? ' done-row' : ''}">
-      <span class="num-badge">${n}</span>
+      <span class="num-badge${n ? '' : ' fixed'}">${n || '–'}</span>
       <div class="meta">
         <div class="name"><span class="nm">${escapeHtml(e.name)}</span> ${tags}</div>
         <div class="topic">${tx ? escapeHtml(tx) + '・' : ''}${e.duration} 分鐘</div>
@@ -708,7 +708,7 @@ function entryRowHtml(e, n, over) {
     </div>`;
 }
 
-function periodBlockHtml(p, q, entries) {
+function periodBlockHtml(p, q, entries, startNum) {
   const used = entries.reduce((s, e) => s + (e.duration || 0), 0);
   let status = '';
   let sub = '';
@@ -739,10 +739,11 @@ function periodBlockHtml(p, q, entries) {
   } else {
     let running = 0;
     let html = '';
+    let num = startNum || 1;
     entries.forEach((e, i) => {
       running += e.duration || 0;
       const over = q.state === 'limited' && running > q.minutes;
-      html += entryRowHtml(e, i + 1, over);
+      html += entryRowHtml(e, e.carried ? 0 : num++, over); // 已延到隔天的不佔編號，和下方「已安排行程」的編號一致
     });
     rows = `<div class="period-rows">${html}</div>`;
   }
@@ -771,12 +772,14 @@ function renderQueue(ready) {
   if (!ready) { list.innerHTML = skeletonHtml(3); return; }
   let html = '';
   let shown = 0;
+  let nextNum = 1; // 編號上午接下午連續編
   PERIODS.forEach(p => {
     const q = quotaOf(p.key);
     const entries = queueOf(p.key);
     if (q.state === 'closed' && !entries.length) return;
     shown++;
-    html += periodBlockHtml(p, q, entries);
+    html += periodBlockHtml(p, q, entries, nextNum);
+    nextNum += entries.filter(e => !e.carried).length;
   });
   list.innerHTML = shown ? html : '<div class="empty">老闆今天還沒有開放討論額度，請稍後再來看看。</div>';
 }
