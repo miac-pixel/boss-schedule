@@ -203,8 +203,8 @@
   <div style="height:16px;"></div>
 
   <div class="card" id="openSlotFormCard">
-    <h2 class="section">開放討論額度</h2>
-    <p class="hint" style="margin-top:-4px;">老闆每日開放討論之額度，隨時可新增與調整；不用先決定幾點，之後可在下方調整順序。</p>
+    <h2 class="section">開放登記</h2>
+    <p class="hint" style="margin-top:-4px;">老闆每日開放登記之時段，隨時可調整；不用先決定幾點，之後可在下方調整順序。</p>
     <div class="addform" style="align-items:center; margin-bottom:10px;">
       <span class="period-label">上午</span>
       <select id="quotaAM" class="quota-select"></select>
@@ -530,7 +530,7 @@ function quotaOf(key) {
   const q = day.quota[key];
   if (q === undefined && key === 'am') return { state: 'unlimited' }; // 預設：上午開放登記
   if (q === 'unlimited') return { state: 'unlimited' };
-  if (typeof q === 'number' && q > 0) return { state: 'limited', minutes: q };
+  if (typeof q === 'number' && q > 0) return { state: 'unlimited' }; // 舊資料的額度數字，視為開放登記
   return { state: 'closed' };
 }
 
@@ -592,18 +592,16 @@ function renderAll() {
 }
 
 function fillQuotaSelects() {
-  let html = '<option value="">不開放</option>';
-  QUOTA_STEPS.forEach(m => { html += `<option value="${m}">${quotaLabel(m)}</option>`; });
-  html += '<option value="unlimited">開放登記（不設額度）</option>';
-  $('quotaAM').innerHTML = '<option value="default">預設開放（尚未確認）</option>' + html;
-  $('quotaPM').innerHTML = html;
+  const base = '<option value="">不開放</option><option value="unlimited">開放登記</option>';
+  $('quotaAM').innerHTML = '<option value="default">預設開放（尚未確認）</option>' + base;
+  $('quotaPM').innerHTML = base;
 }
 
 function quotaValue(key) {
   const q = day.quota[key];
   if (q === undefined && key === 'am') return 'default';
   if (q === 'unlimited') return 'unlimited';
-  return typeof q === 'number' && q > 0 ? String(q) : '';
+  return typeof q === 'number' && q > 0 ? 'unlimited' : '';
 }
 
 function renderQuotaForm(ready) {
